@@ -245,8 +245,7 @@ async def main(recording=False, debug=False):
                 clean_dir(frames_path)
                 clean_dir(regions_path)
                 game_end = True
-                return
-            # await sleep(1)
+            await sleep(1)
 
         # Pause for a moment before starting a new recording
         await sleep(1)
