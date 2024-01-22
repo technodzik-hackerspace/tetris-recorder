@@ -90,13 +90,11 @@ def get_score_images(image: np.array, reverse=False):
     if reverse:
         trim_2 = cv2.flip(trim_2, 1)
 
-    contours = cv2.findContours(trim_2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contours = contours[0] if len(contours) == 2 else contours[1]
+    contours, _ = cv2.findContours(trim_2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = sorted(contours, key=lambda d: d[0][0][0])
 
     numbers = []
     for c in contours:
-        cv2.drawContours(trim_2, [c], -1, (0, 255, 0), 1)
         x, y, w, h = cv2.boundingRect(c)
         numbers.append(trim_2[y : y + h, x : x + w])
 
@@ -157,17 +155,59 @@ def create_video(filename: Path):
             str(filename),
         ]
     )
-    rez = proc.communicate()
+    proc.communicate()
+
+
+def find_asd(image: np.array, reversed=False):
+    # result = image.copy()
+    image = image[image.shape[0] // 4 :, :]
+    cv2.imwrite(str(regions_path / "red.png"), image)
+    lower = np.array([0, 0, 150])
+    upper = np.array([100, 100, 255])
+    mask = cv2.inRange(image, lower, upper)
+    # result = cv2.bitwise_and(result, result, mask=mask)
+    cv2.imwrite(str(regions_path / "red1.png"), mask)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return False
+
+    cnt = sorted(contours, key=cv2.contourArea, reverse=True)[0]
+    x, y, w, h = cv2.boundingRect(cnt)
+    img = image[y : y + h, x : x + w]
+    # cv2.imwrite(str(regions_path / "red1.png"), img)
+
+    im_bw = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    _, thresh_original = cv2.threshold(im_bw, 10, 255, cv2.THRESH_BINARY)
+    cv2.imwrite(str(regions_path / "red2.png"), thresh_original)
+    contours, _ = cv2.findContours(
+        thresh_original, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if len(contours) < 3:
+        return False
+
+    return True
+
+    # cnt = sorted(contours, key=cv2.contourArea, reverse=True)[3]
+    # x, y, w, h = cv2.boundingRect(cnt)
+    # img = img[y : y + h, x : x + w]
+
+    # if reversed:
+    #     img = cv2.flip(img, 1)
+    # cv2.imwrite(str(regions_path / "red3.png"), img)
+    #
+    # digit_roi = cv2.imread("game_over2.png")
+    # result = cv2.matchTemplate(img, digit_roi, cv2.TM_CCOEFF)
+    # (_, score, _, _) = cv2.minMaxLoc(result)
+
+    # return True
 
 
 async def main(recording=False, debug=False):
-    start_reference_image = cv2.imread("game_start.png")
-    end_reference_image = cv2.imread("game_over.png")
     roi_ref = get_refs()
 
     while True:
-        p1_end = False
-        p2_end = False
+        game_end = True
 
         clean_dir(frames_path)
         clean_dir(regions_path)
@@ -175,26 +215,38 @@ async def main(recording=False, debug=False):
         for frame_number, frame in enumerate(frame_generator(debug=debug)):
             _frame = strip_frame(frame)
             cv2.imwrite(
-                str(frames_path / f"frame_{frame_number}.png"),
+                str(frames_path / f"frame_{frame_number:04d}.png"),
                 cv2.resize(_frame, (400, 400)),
             )
 
             f1, f2 = split_img(_frame)
 
+            if game_end:
+                score1 = get_score(f1, roi_ref=roi_ref)
+                score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+                if score1 == 0 and score2 == 0:
+                    game_end = False
+                else:
+                    continue
+
             if debug:
-                cv2.imwrite(str(regions_path / f"p1_{frame_number}.png"), f1)
-                cv2.imwrite(str(regions_path / f"p2_{frame_number}.png"), f2)
+                cv2.imwrite(str(regions_path / f"p1_{frame_number:04d}.png"), f1)
+                cv2.imwrite(str(regions_path / f"p2_{frame_number:04d}.png"), f2)
 
-            score1 = get_score(f1, roi_ref=roi_ref)
-            score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+            p1_end = find_asd(f1)
+            p2_end = find_asd(f2, reversed=True)
 
-            if p1_end and p2_end:
+            if p1_end and p2_end and game_end is False:
+                # score1 = get_score(f1, roi_ref=roi_ref)
+                # score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+
                 if recording:
                     create_video(videos_path / generate_unique_filename())
                 clean_dir(frames_path)
                 clean_dir(regions_path)
-                break
-            await sleep(1)
+                game_end = True
+                return
+            # await sleep(1)
 
         # Pause for a moment before starting a new recording
         await sleep(1)
@@ -227,4 +279,4 @@ def get_refs():
 
 
 if __name__ == "__main__":
-    asyncio.run(main(debug=True))
+    asyncio.run(main(debug=True, recording=True))
