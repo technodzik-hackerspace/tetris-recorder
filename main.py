@@ -237,8 +237,8 @@ async def main(recording=False, debug=False):
             p2_end = find_asd(f2, reversed=True)
 
             if p1_end and p2_end and game_end is False:
-                # score1 = get_score(f1, roi_ref=roi_ref)
-                # score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+                score1 = get_score(f1, roi_ref=roi_ref)
+                score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
 
                 if recording:
                     create_video(videos_path / generate_unique_filename())
