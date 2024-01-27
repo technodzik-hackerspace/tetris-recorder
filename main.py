@@ -2,7 +2,6 @@ import asyncio
 from asyncio import sleep
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import cv2
 from aiogram.types import FSInputFile
@@ -10,11 +9,11 @@ from aiogram.types import FSInputFile
 from bot import bot
 from config import settings
 from cv_tools.detect_digit import get_refs
-from cv_tools.find_game_over import find_game_over
 from cv_tools.score_detect import get_score
 from cv_tools.split_img import split_img
 from cv_tools.strip_frame import strip_frame
 from ffmpeg_tools import create_video
+from player import Player
 
 frames_path = Path("frames")
 regions_path = Path("regions")
@@ -54,20 +53,6 @@ def clean_dir(path: Path):
             i.unlink()
 
 
-class Player:
-    score: Optional[int] = None
-    end = False
-
-    def __init__(self, roi_ref, reverse=False):
-        self.reverse = reverse
-        self.roi_ref = roi_ref
-
-    def parse_frame(self, frame):
-        self.score = get_score(frame, roi_ref=self.roi_ref)
-        if not self.end:
-            self.end = find_game_over(frame, self.reverse)
-
-
 async def main(recording=False, debug=False):
     roi_ref = get_refs()
 
@@ -82,6 +67,11 @@ async def main(recording=False, debug=False):
 
         for frame_number, frame in enumerate(frame_generator(debug=debug)):
             frame_start = datetime.utcnow()
+
+            cv2.imwrite(
+                str(frames_path / f"test_{frame_number:05d}.png"),
+                frame,
+            )
 
             try:
                 _frame = strip_frame(frame)

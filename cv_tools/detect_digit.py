@@ -19,7 +19,7 @@ def detect_digit(roi: np.array, roi_ref: dict[int, np.array]) -> int:
 def get_refs() -> dict[int, np.array]:
     results = {}
 
-    for i in Path("digits").iterdir():
+    for i in (Path(__file__).parent.parent / "digits").iterdir():
         val = int(i.stem)
         img = cv2.imread(str(i))
 
