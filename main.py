@@ -124,9 +124,23 @@ def split_img(img: np.array) -> tuple[np.array, np.array]:
     p2 = cv2.flip(p2, 1)
     return p1, p2
 
+def have_next(ff1):
+    image = ff1[:ff1.shape[0] // 5, :ff1.shape[1] // 3]
+    cv2.imwrite(str(regions_path / "red.png"), image)
+    lower = np.array([0, 0, 150])
+    upper = np.array([100, 100, 255])
+    mask = cv2.inRange(image, lower, upper)
+    cv2.imwrite(str(regions_path / "red1.png"), mask)
+
+    return mask.sum() > 10000
 
 def get_score(img: np.array, roi_ref: dict[int, np.array], reverse=False) -> int:
     ff1 = img[0 : img.shape[0] // 5, :]
+
+    _next = have_next(ff1)
+    if not _next:
+        return
+
     imgs = get_score_images(ff1, reverse)
 
     digits = [detect_digit(i, roi_ref) for i in imgs]
@@ -158,7 +172,7 @@ def create_video(filename: Path):
     proc.communicate()
 
 
-def find_asd(image: np.array, reversed=False):
+def find_game_over(image: np.array, reversed=False):
     # result = image.copy()
     image = image[image.shape[0] // 4 :, :]
     cv2.imwrite(str(regions_path / "red.png"), image)
@@ -208,12 +222,22 @@ async def main(recording=False, debug=False):
 
     while True:
         game_end = True
+        single_player = False
 
         clean_dir(frames_path)
         clean_dir(regions_path)
 
         for frame_number, frame in enumerate(frame_generator(debug=debug)):
-            _frame = strip_frame(frame)
+            frame_start = datetime.utcnow()
+            cv2.imwrite(
+                str(regions_path / f"frame_{frame_number:04d}.png"), frame
+            )
+
+            try:
+                _frame = strip_frame(frame)
+            except Exception as e:
+                continue
+
             cv2.imwrite(
                 str(frames_path / f"frame_{frame_number:04d}.png"),
                 cv2.resize(_frame, (400, 400)),
@@ -222,9 +246,19 @@ async def main(recording=False, debug=False):
             f1, f2 = split_img(_frame)
 
             if game_end:
-                score1 = get_score(f1, roi_ref=roi_ref)
-                score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
-                if score1 == 0 and score2 == 0:
+                try:
+                    score1 = get_score(f1, roi_ref=roi_ref)
+                    score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+                except Exception as e:
+                    continue
+
+                if score2 is None and score1 == 0:
+                    print("single player start")
+                    single_player = True
+                    game_end = False
+                elif score1 == 0 and score2 == 0:
+                    print("multi player start")
+                    single_player = False
                     game_end = False
                 else:
                     continue
@@ -233,19 +267,34 @@ async def main(recording=False, debug=False):
                 cv2.imwrite(str(regions_path / f"p1_{frame_number:04d}.png"), f1)
                 cv2.imwrite(str(regions_path / f"p2_{frame_number:04d}.png"), f2)
 
-            p1_end = find_asd(f1)
-            p2_end = find_asd(f2, reversed=True)
+            score1 = get_score(f1, roi_ref=roi_ref)
+            if not single_player:
+                score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+            else:
+                score2 = None
+            print(f"Score: {score1} {score2}")
+
+            p1_end = find_game_over(f1)
+            if not single_player:
+                p2_end = find_game_over(f2, reversed=True)
+            else:
+                p2_end = True
 
             if p1_end and p2_end and game_end is False:
                 score1 = get_score(f1, roi_ref=roi_ref)
-                score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+                if not single_player:
+                    score2 = get_score(f2, roi_ref=roi_ref, reverse=True)
+                else:
+                    score2 = None
 
                 if recording:
                     create_video(videos_path / generate_unique_filename())
                 clean_dir(frames_path)
                 clean_dir(regions_path)
                 game_end = True
-            await sleep(1)
+
+            print(datetime.utcnow()-frame_start)
+            # await sleep(0.1)
 
         # Pause for a moment before starting a new recording
         await sleep(1)
@@ -278,4 +327,4 @@ def get_refs():
 
 
 if __name__ == "__main__":
-    asyncio.run(main(debug=True, recording=True))
+    asyncio.run(main(debug=False, recording=True))

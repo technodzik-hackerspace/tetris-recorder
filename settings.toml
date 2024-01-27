@@ -1,6 +1,5 @@
 [default]
-image_device = "/dev/video0"
-video_device = "/dev/video2"
+image_device = "/dev/video2"
 
 bot_token = ""
 chat_id = ""

@@ -163,3 +163,4 @@ frames/*.png
 regions/*.png
 test_frames/*.png
 videos/*.mp4
+.secrets.toml
