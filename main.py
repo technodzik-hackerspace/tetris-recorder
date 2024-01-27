@@ -5,9 +5,9 @@ from pathlib import Path
 from typing import Optional
 
 import cv2
-from aiogram import Bot, types
-from aiogram.types import InputFile
+from aiogram.types import FSInputFile
 
+from bot import bot
 from config import settings
 from cv_tools.detect_digit import get_refs
 from cv_tools.find_game_over import find_game_over
@@ -27,14 +27,11 @@ def generate_unique_filename():
 
 
 async def send_video_to_telegram(video_path: Path, caption: str):
-    bot = Bot(token=settings.bot_token)
-    await bot.send_chat_action(
-        chat_id=settings.chat_id, action=types.ChatActions.UPLOAD_VIDEO
+    await bot.send_video(
+        chat_id=settings.chat_id,
+        video=FSInputFile(video_path),
+        caption=caption,
     )
-    with open(video_path, "rb") as video_file:
-        await bot.send_video(
-            chat_id=settings.chat_id, video=InputFile(video_file), caption=""
-        )
 
 
 def frame_generator(debug=False):
