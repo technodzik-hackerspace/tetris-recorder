@@ -2,4 +2,4 @@
 image_device = "/dev/video2"
 
 bot_token = ""
-chat_id = ""
+chat_id = -0
