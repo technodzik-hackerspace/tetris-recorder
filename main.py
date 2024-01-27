@@ -83,9 +83,9 @@ async def main(recording=False, debug=False):
                 cv2.resize(_frame, (416, 400)),
             )
 
-            if 350 > _frame.shape[0] or 450 < _frame.shape[0]:
+            if 350 < _frame.shape[0] or 450 > _frame.shape[0]:
                 continue
-            if 350 > _frame.shape[1] or 450 < _frame.shape[1]:
+            if 350 < _frame.shape[1] or 450 > _frame.shape[1]:
                 continue
 
             frames = split_img(_frame)

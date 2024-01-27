@@ -27,3 +27,21 @@ async def test_image_1(img_name, expected):
         p.parse_frame(f)
 
     assert expected == [p.score for p in players]
+
+
+@pytest.mark.asyncio
+async def test_image_2():
+    frame = cv2.imread(str(fixtures_path / "test_00000.png"))
+    _frame = strip_frame(frame)
+
+    if 350 < _frame.shape[0] or 450 > _frame.shape[0]:
+        a = 1
+    else:
+        a = 0
+
+    if 350 > _frame.shape[1] or 450 > _frame.shape[1]:
+        b = 1
+    else:
+        b = 0
+
+    assert a + b == 2
