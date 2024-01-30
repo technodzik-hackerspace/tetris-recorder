@@ -4,16 +4,15 @@ from datetime import datetime
 from pathlib import Path
 
 import cv2
-from aiogram.types import FSInputFile
 
-from bot import bot
+from bot import send_video_to_telegram
 from config import settings
 from cv_tools.detect_digit import get_refs
 from cv_tools.score_detect import get_score
 from cv_tools.split_img import split_img
 from cv_tools.strip_frame import strip_frame
-from ffmpeg_tools import create_video
-from player import Player
+from game_objects.player import Player
+from utils.ffmpeg_tools import create_video
 
 frames_path = Path("frames")
 regions_path = Path("regions")
@@ -23,14 +22,6 @@ videos_path = Path("videos")
 def generate_unique_filename():
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     return f"gameplay_{timestamp}.mp4"
-
-
-async def send_video_to_telegram(video_path: Path, caption: str):
-    await bot.send_video(
-        chat_id=settings.chat_id,
-        video=FSInputFile(video_path),
-        caption=caption,
-    )
 
 
 def frame_generator(debug=False):

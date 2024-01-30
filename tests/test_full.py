@@ -6,7 +6,7 @@ import pytest
 from cv_tools import strip_frame
 from cv_tools.detect_digit import get_refs
 from cv_tools.split_img import split_img
-from player import Player
+from game_objects.player import Player
 
 fixtures_path = Path(__file__).parent.resolve() / "fixtures"
 
@@ -56,3 +56,18 @@ async def test_image_dance():
     assert not any(p.end for p in players)
     assert players[0].score == 1314
     assert players[1].score == 426
+
+
+@pytest.mark.asyncio
+async def test_image_end():
+    frame = cv2.imread(str(fixtures_path / "test_end.png"))
+    _frame = strip_frame(frame)
+    frames = split_img(_frame)
+
+    refs = get_refs()
+
+    p = Player(refs)
+    p.parse_frame(frames[0])
+
+    assert p.end
+    assert p.score == 129
