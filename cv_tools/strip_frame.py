@@ -17,4 +17,9 @@ def strip_frame(frame: np.ndarray):
 
     _frame = frame[y : y + h, x : x + w]
 
+    if not (450 > _frame.shape[0] > 350):
+        raise Exception("Wrong height")
+    if not (450 > _frame.shape[1] > 350):
+        raise Exception("Wrong width")
+
     return _frame
