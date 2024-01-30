@@ -16,7 +16,7 @@ def create_video(filename: Path, framerate=10):
         [
             f"-framerate {framerate}",
             "-pattern_type glob",
-            "-i 'frames/*.png'",
+            "-i 'frames/frame_*.png'",
             "-c:v libx264",
             "-pix_fmt yuv420p",
             str(filename),

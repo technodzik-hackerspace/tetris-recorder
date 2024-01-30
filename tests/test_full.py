@@ -53,7 +53,7 @@ async def test_image_dance():
     for p, f in zip(players, frames):
         p.parse_frame(f)
 
-    assert not any(p.end for p in players)
+    assert not any(p.game_over for p in players)
     assert players[0].score == 1314
     assert players[1].score == 426
 
@@ -69,5 +69,5 @@ async def test_image_end():
     p = Player(refs)
     p.parse_frame(frames[0])
 
-    assert p.end
+    assert p.game_over
     assert p.score == 129

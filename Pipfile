@@ -12,6 +12,7 @@ opencv-python = "*"
 [dev-packages]
 pytest = "<8"
 pytest-asyncio = "*"
+isort = "*"
 
 [requires]
 python_version = "3.11"

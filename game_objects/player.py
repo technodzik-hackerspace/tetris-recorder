@@ -8,13 +8,13 @@ from cv_tools.score_detect import get_score
 
 class Player:
     score: Optional[int] = None
-    end = False
+    game_over = False
 
     def __init__(self, roi_ref: dict[int, np.array], reverse=False):
         self.reverse = reverse
         self.roi_ref = roi_ref
 
-    def parse_frame(self, frame):
+    def parse_frame(self, frame: np.ndarray):
         self.score = get_score(frame, roi_ref=self.roi_ref, reverse=self.reverse)
-        if not self.end:
-            self.end = find_game_over(frame, self.reverse)
+        if not self.game_over:
+            self.game_over = find_game_over(frame, self.reverse)
