@@ -45,3 +45,20 @@ async def test_image_2():
         b = 0
 
     assert a + b == 2
+
+
+@pytest.mark.asyncio
+async def test_image_dance():
+    frame = cv2.imread(str(fixtures_path / "test_dance.png"))
+    _frame = strip_frame(frame)
+    frames = split_img(_frame)
+
+    refs = get_refs()
+
+    players = [Player(refs), Player(refs, reverse=True)]
+    for p, f in zip(players, frames):
+        p.parse_frame(f)
+
+    assert not any(p.end for p in players)
+    assert players[0].score == 1314
+    assert players[1].score == 426

@@ -10,6 +10,7 @@ regions_path = Path("regions")
 
 def find_game_over(image: np.array, reversed=False) -> bool:
     image = find_game_field(image)
+    image = image[image.shape[0]//3:image.shape[0]//3*2, :]
 
     cv2.imwrite(str(regions_path / "game_over1.png"), image)
     lower = np.array([0, 0, 150])
