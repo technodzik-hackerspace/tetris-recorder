@@ -107,4 +107,4 @@ async def main(recording=False):
 
 
 if __name__ == "__main__":
-    asyncio.run(main(debug=False, recording=True))
+    asyncio.run(main(recording=True))
