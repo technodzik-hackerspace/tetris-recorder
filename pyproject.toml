@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
