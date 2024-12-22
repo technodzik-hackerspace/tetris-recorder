@@ -13,6 +13,7 @@ opencv-python = "*"
 pytest = "<8"
 pytest-asyncio = "*"
 isort = "*"
+coverage = "*"
 
 [requires]
 python_version = "3.11"

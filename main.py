@@ -1,110 +1,243 @@
 import asyncio
+import logging
 from asyncio import sleep
-from datetime import datetime
+from copy import deepcopy
+from datetime import datetime, UTC
 from pathlib import Path
 
-import cv2
+from aiogram import Bot
 
-from bot import send_video_to_telegram
+from bot import get_bot, send_video_to_telegram, start_polling
+from commitment import player_commitment
 from config import settings
-from cv_tools.detect_digit import get_refs
+from cv_tools.debug import save_image
+from cv_tools.detect_digit import get_refs, RoiRef
 from cv_tools.frame_generator import frame_generator
-from cv_tools.score_detect import get_score
-from cv_tools.split_img import split_img
-from cv_tools.strip_frame import strip_frame
+from game_objects.frame import Frame
 from game_objects.player import Player
-from utils.dirs import clean_dir, frames_path, regions_path, videos_path
+from utils.dirs import (
+    clean_dir,
+    frames_path,
+    full_frames_path,
+    regions_path,
+    videos_path,
+)
 from utils.ffmpeg_tools import create_video
 
 
-async def main(recording=False):
+def utcnow():
+    return datetime.now(UTC)
+
+
+class ILoggerAdapter(logging.LoggerAdapter):
+    def __init__(self, logger, extra):
+        super().__init__(logger, extra)
+        self.env = extra
+
+    def process(self, msg, kwargs):
+        msg, kwargs = super().process(msg, kwargs)
+
+        result = deepcopy(kwargs)
+
+        default_kwargs_key = ["exc_info", "stack_info", "extra"]
+        custome_key = [k for k in result.keys() if k not in default_kwargs_key]
+        result["extra"].update({k: result.pop(k) for k in custome_key})
+
+        return msg, result
+
+
+def get_frame_logger(name):
+    _log = logging.getLogger(name)
+    h = logging.StreamHandler()
+    h.setFormatter(
+        logging.Formatter("%(levelname)s:%(name)s[%(frame_number)s]:%(message)s")
+    )
+    for i in _log.handlers:
+        _log.removeHandler(i)
+    _log.addHandler(h)
+
+    _log.setLevel(logging.INFO)
+
+    return _log
+
+
+async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
+    _log = get_frame_logger("game")
+
+    midgame = False
+    pause_started = False
+    game_started = False
+
+    players: list[Player] = []
+    last_score = [None, None]
+    last_game_over = [False, False]
+
+    clean_dir(frames_path)
+    clean_dir(full_frames_path)
+
+    for frame_number, frame in enumerate(frame_generator(image_device)):
+        await sleep(0)
+        log = ILoggerAdapter(_log, {"frame_number": frame_number})
+
+        frame_start = utcnow()
+
+        save_image(full_frames_path / f"{frame_number:06d}.png", frame)
+
+        try:
+            f = Frame.strip(frame)
+        except Exception as e:
+            continue
+
+        if f.is_paused:
+            if not pause_started:
+                log.info("Pause")
+                pause_started = True
+            continue
+        elif pause_started:
+            log.info("Resume")
+            pause_started = False
+
+        if not f.is_game:
+            continue
+
+        save_image(frames_path / f"{frame_number:06d}.png", f.image)
+
+        screens = f.get_player_screens(roi_ref)
+
+        if not game_started:
+            try:
+                score1 = screens[0].score_frame.score
+                score2 = screens[1].score_frame.score
+            except Exception as e:
+                clean_dir(frames_path)
+                continue
+
+            if score1 == 0:
+                if score2 == 0:
+                    if player_commitment.p1 and player_commitment.p2:
+                        text = f"P1:{player_commitment.p1_name} vs P2:{player_commitment.p2_name}"
+                        log.info(f"Start: {text}")
+
+                        await bot.send_message(
+                            player_commitment.p1.id, text=f"Game {text} started"
+                        )
+                        await bot.send_message(
+                            player_commitment.p2.id, text=f"Game {text} started"
+                        )
+                    else:
+                        log.info("Start: multi player")
+
+                    players = [
+                        Player(player_commitment.p1_name),
+                        Player(player_commitment.p2_name),
+                    ]
+                else:
+                    log.info("Start: single player")
+                    players = [Player(player_commitment.p1_name)]
+
+                game_started = True
+                player_commitment.start()
+                midgame = True
+            else:
+                if midgame is False:
+                    midgame = True
+                    log.info("Midgame, waiting for start")
+                clean_dir(frames_path)
+                continue
+        else:
+            midgame = False
+
+        # print("Frame: ", frame_number)
+
+        for p, screen in zip(players, screens):
+            p.parse_frame(screen)
+
+        if players[0].score is None:
+            break
+
+        if last_score != [i.score for i in players]:
+            last_score = [i.score for i in players]
+            log.info(f"Score: {last_score}")
+
+        if last_game_over != [i.game_over for i in players]:
+            for go, p in zip(last_game_over, players):
+                if go != p.game_over:
+                    log.info(f"{p.name} game over: {p.score}")
+            last_game_over = [i.game_over for i in players]
+
+        if all(i.game_over for i in players) and game_started is True:
+            log.info(f"Final score: {last_score}")
+
+            if len(players) == 2:
+                video_path = compile_video()
+                log.info(f"Video created: {video_path}")
+
+                if player_commitment.p1:
+                    await send_video_to_telegram(
+                        bot,
+                        chat_id=player_commitment.p1.id,
+                        video_path=video_path,
+                        caption=get_player_message(players[0], players[1]),
+                    )
+                if player_commitment.p2:
+                    await send_video_to_telegram(
+                        bot,
+                        chat_id=player_commitment.p2.id,
+                        video_path=video_path,
+                        caption=get_player_message(players[1], players[0]),
+                    )
+                player_commitment.clear()
+            break
+
+        # 10 fps
+        spent_time = utcnow() - frame_start
+        await sleep(max(0.0, (1 / settings.fps) - spent_time.total_seconds()))
+
+    # Pause for a moment before starting a new recording
+    await sleep(1)
+
+
+def get_player_message(player: Player, opponent: Player):
+    if player.score > opponent.score:
+        caption = "You win!"
+    elif player.score < opponent.score:
+        caption = "You lose!"
+    else:
+        caption = "Draw!"
+
+    caption += f"\nYour score: {player.score}\n{opponent.name} score: {opponent.score}"
+
+    return caption
+
+
+async def main():
     roi_ref = get_refs()
     image_device = Path(settings.image_device)
 
-    while True:
-        game_start = False
+    bot = await get_bot()
+    task = asyncio.create_task(start_polling(bot))
 
-        players: list[Player] = []
-        last_score = [None, None]
+    clean_dir(frames_path)
+    clean_dir(regions_path)
+    clean_dir(full_frames_path)
 
+    try:
+        while True:
+            await game_loop(bot, image_device, roi_ref)
+    finally:
         clean_dir(frames_path)
         clean_dir(regions_path)
+        task.cancel()
+        await task
 
-        for frame_number, frame in enumerate(frame_generator(image_device)):
-            frame_start = datetime.utcnow()
 
-            cv2.imwrite(
-                str(frames_path / f"test_{frame_number:05d}.png"),
-                frame,
-            )
-
-            try:
-                _frame = strip_frame(frame)
-            except Exception as e:
-                continue
-
-            cv2.imwrite(
-                str(frames_path / f"frame_{frame_number:05d}.png"),
-                cv2.resize(_frame, (416, 400)),
-            )
-
-            frames = split_img(_frame)
-
-            if not game_start:
-                try:
-                    score1 = get_score(frames[0], roi_ref=roi_ref)
-                    score2 = get_score(frames[1], roi_ref=roi_ref, reverse=True)
-                except Exception as e:
-                    break
-
-                if score1 == 0:
-                    if score2 is None:
-                        print("Start: single player")
-                        players = [Player(roi_ref)]
-                        game_start = True
-                    elif score2 == 0:
-                        print("Start: multi player")
-                        players = [Player(roi_ref), Player(roi_ref, reverse=True)]
-                        game_start = True
-                else:
-                    break
-
-            # cv2.imwrite(str(regions_path / f"p1_{frame_number:05d}.png"), f1)
-            # cv2.imwrite(str(regions_path / f"p2_{frame_number:05d}.png"), f2)
-
-            for p, f in zip(players, frames):
-                p.parse_frame(f)
-
-            if players[0].score is None:
-                break
-
-            if last_score != [i.score for i in players]:
-                last_score = [i.score for i in players]
-                print(f"Score: {last_score} frame: {frame_number}")
-
-            if all(i.game_over for i in players) and game_start is True:
-                print(f"Final score: {last_score}")
-
-                if recording:
-                    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-                    video_path = videos_path / f"game_{timestamp}.mp4"
-                    create_video(video_path, framerate=settings.fps)
-                    print(f"Video created: {video_path}")
-                    if len(players) == 2:
-                        caption = f"Score: {players[0].score} - {players[1].score}"
-                    else:
-                        caption = f"Score: {players[0].score}"
-                    await send_video_to_telegram(video_path, caption=caption)
-
-                break
-
-            # 10 fps
-            spent_time = datetime.utcnow() - frame_start
-            await sleep(max(0.0, (1 / settings.fps) - spent_time.total_seconds()))
-
-        # Pause for a moment before starting a new recording
-        await sleep(1)
+def compile_video():
+    timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
+    video_path = videos_path / f"game_{timestamp}.mp4"
+    create_video(video_path, framerate=settings.fps)
+    clean_dir(frames_path)
+    return video_path
 
 
 if __name__ == "__main__":
-    asyncio.run(main(recording=True))
+    asyncio.run(main())
