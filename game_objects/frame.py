@@ -324,6 +324,11 @@ class Frame(BaseFrame):
     @cached_property
     def is_paused(self):
         arc = self.crop(self.arc_pos)
+        shape = arc.shape
+        arc = self.crop_image(
+            arc,
+            ((0, shape[1] // 10), (shape[0], shape[1] - shape[1] // 10)),
+        )
         # save_image("arc.png", arc)
 
         lower = np.array([0, 0, 200])
@@ -331,7 +336,7 @@ class Frame(BaseFrame):
         mask = cv2.inRange(arc, lower, upper)
         # save_image("mask.png", mask)
 
-        return mask.any()
+        return bool(mask.any())
 
     @cached_property
     def is_game(self) -> bool:
@@ -343,7 +348,7 @@ class Frame(BaseFrame):
                 (-1, -1),
             ),
         )
-        return bottom.any()
+        return bool(bottom.any())
 
     @classmethod
     def strip(cls, frame: np.ndarray):

@@ -79,6 +79,7 @@ def test_score_frame(img_name, expected, refs, load_image):
         ("game_started_solo.png", False),
         ("test_00145.png", False),
         ("test_00164.png", False),
+        ("test_00171.png", False),
         ("test_00329.png", False),
         ("test_00330.png", False),
         ("test_00577.png", False),
