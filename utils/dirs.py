@@ -1,6 +1,7 @@
 from pathlib import Path
 
 _root = Path(__file__).parent.parent
+full_frames_path = _root / "full_frames"
 frames_path = _root / "frames"
 regions_path = _root / "regions"
 videos_path = _root / "videos"

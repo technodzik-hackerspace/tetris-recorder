@@ -11,12 +11,14 @@ def ffmpeg_cmd(args: list[str]):
     )
 
 
-def create_video(filename: Path, framerate=10):
+def create_video(
+    filename: Path, frames_path: Path = Path("frames/*.png"), framerate=10
+):
     proc = ffmpeg_cmd(
         [
             f"-framerate {framerate}",
             "-pattern_type glob",
-            "-i 'frames/frame_*.png'",
+            f"-i '{frames_path}'",
             "-c:v libx264",
             "-pix_fmt yuv420p",
             str(filename),
