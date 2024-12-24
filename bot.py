@@ -64,11 +64,12 @@ async def start_polling(bot: Bot):
     dp = LogDispatcher()
 
     @dp.message(Command("p1", "p2"))
-    async def command_start_handler(message: Message, bot: Bot) -> None:
+    async def command_start_handler(message: Message) -> None:
         try:
             result = player_commitment.apply(message.text[1:], message.from_user)
         except ValueError as e:
             await message.answer(str(e))
+            return
 
         if not result:
             return

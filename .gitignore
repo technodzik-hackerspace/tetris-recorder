@@ -161,6 +161,7 @@ cython_debug/
 
 frames/*.png
 regions/*.png
+full_frames/*.png
 test_frames/*.png
 videos/*.mp4
 .secrets.toml

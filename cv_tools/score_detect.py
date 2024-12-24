@@ -1,9 +1,5 @@
-from pathlib import Path
-
 import cv2
 import numpy as np
-
-regions_path = Path.cwd() / "regions"
 
 
 def get_countours(image: np.array):

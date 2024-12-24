@@ -1,9 +1,7 @@
-from pathlib import Path
-
 import cv2
 import numpy as np
 
-regions_path = Path("regions")
+from utils.dirs import regions_path  # noqa
 
 
 def find_game_over(image: np.array) -> bool:
