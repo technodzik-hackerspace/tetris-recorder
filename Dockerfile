@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-COPY Pipfile* .
+COPY Pipfile* ./
 
 RUN pip install pipenv && pipenv install --system --deploy
 
