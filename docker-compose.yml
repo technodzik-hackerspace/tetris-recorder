@@ -1,12 +1,10 @@
 services:
   app:
     build: .
-    ports:
-      - "3000:3000"
     devices:
       - /dev/video0
     volumes:
-      - .secrets:/app/.secrets:ro
+      - .secrets.toml:/app/.secrets.toml:ro
       - ./regions:/app/regions
       - ./videos:/app/videos
       - ./frames:/app/frames
