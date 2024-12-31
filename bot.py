@@ -7,6 +7,7 @@ from aiogram.types import BotCommand, FSInputFile, Message, Update
 
 from commitment import player_commitment
 from config import settings
+from utils.get_player_name import get_user_name
 
 
 async def send_video_to_telegram(bot: Bot, chat_id, video_path: Path, caption: str):
@@ -75,7 +76,7 @@ async def start_polling(bot: Bot):
             return
 
         await message.answer(
-            f"{player_commitment.get_player_name(message.from_user)} applied as {message.text[1:].upper()}!"
+            f"{get_user_name(message.from_user)} applied as {message.text[1:].upper()}!"
         )
 
     await dp.start_polling(bot)

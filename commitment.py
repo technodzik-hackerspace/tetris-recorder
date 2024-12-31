@@ -1,5 +1,7 @@
 from aiogram.types import User
 
+from utils.get_player_name import get_user_name
+
 
 class PlayerCommitment:
     p1: User | None = None
@@ -33,22 +35,13 @@ class PlayerCommitment:
     def p1_name(self):
         if not self.p1:
             return "P1"
-        return self.get_player_name(self.p1)
+        return get_user_name(self.p1)
 
     @property
     def p2_name(self):
         if not self.p2:
             return "P2"
-        return self.get_player_name(self.p2)
-
-    @staticmethod
-    def get_player_name(player: User):
-        if player.username:
-            return f"@{player.username}"
-        if player.first_name:
-            return player.first_name
-        if player.last_name:
-            return f"#{player.id}"
+        return get_user_name(self.p2)
 
 
 player_commitment = PlayerCommitment()
