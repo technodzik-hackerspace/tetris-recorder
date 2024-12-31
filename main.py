@@ -118,8 +118,8 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
             if score1 == 0:
                 if score2 == 0:
                     players = [
-                        Player(player_commitment.p1),
-                        Player(player_commitment.p2),
+                        Player(1, player_commitment.p1),
+                        Player(2, player_commitment.p2),
                     ]
 
                     if players[0].user and players[1].user:
@@ -147,7 +147,7 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                             text="Single game starter, both unregister",
                         )
                         player_commitment.clear()
-                    players = [Player(player_commitment.p1)]
+                    players = [Player(1, player_commitment.p1)]
 
                 game_started = True
                 player_commitment.clear()
