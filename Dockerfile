@@ -10,7 +10,7 @@ WORKDIR /app
 
 COPY Pipfile* ./
 
-RUN pip install pipenv && pipenv install --system --deploy
+RUN pip install pipenv && pipenv install --system --deploy --clear
 
 COPY . .
 
