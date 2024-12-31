@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    devices:
+      - /dev/video0
+    volumes:
+      - .secrets.toml:/app/.secrets.toml:ro
+      - ./regions:/app/regions
+      - ./videos:/app/videos
+      - ./frames:/app/frames
+      - ./full_frames:/app/full_frames
