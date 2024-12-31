@@ -190,20 +190,21 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                 video_path = compile_video()
                 log.info(f"Video created: {video_path}")
 
-                if player_commitment.p1:
+                if players[0].user:
                     await send_video_to_telegram(
                         bot,
-                        chat_id=player_commitment.p1.id,
+                        chat_id=players[0].user.id,
                         video_path=video_path,
                         caption=get_player_message(players[0], players[1]),
                     )
-                if player_commitment.p2:
+                if players[1].user:
                     await send_video_to_telegram(
                         bot,
-                        chat_id=player_commitment.p2.id,
+                        chat_id=players[1].user.id,
                         video_path=video_path,
                         caption=get_player_message(players[1], players[0]),
                     )
+                video_path.unlink()
                 player_commitment.clear()
             break
 
