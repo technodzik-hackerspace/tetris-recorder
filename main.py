@@ -186,7 +186,7 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
         if all(i.game_over for i in players) and game_started is True:
             log.info(f"Final score: {last_score}")
 
-            if len(players) == 2:
+            if len(players) == 2 and (players[0].user or players[1].user):
                 video_path = compile_video()
                 log.info(f"Video created: {video_path}")
 
