@@ -6,11 +6,8 @@ from utils.get_player_name import get_user_name
 class PlayerCommitment:
     p1: User | None = None
     p2: User | None = None
-    _started: bool = False
 
     def apply(self, player: str, user: User):
-        if self._started:
-            raise ValueError("Game already started")
         if player not in ("p1", "p2"):
             raise ValueError("Invalid player")
         if user in (self.p1, self.p2):
@@ -26,10 +23,6 @@ class PlayerCommitment:
     def clear(self):
         self.p1 = None
         self.p2 = None
-        self._started = False
-
-    def start(self):
-        self._started = True
 
     @property
     def p1_name(self):

@@ -126,10 +126,10 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                         text = f"P1:{players[0].name} vs P2:{players[1].name}"
 
                         await bot.send_message(
-                            player_commitment.p1.id, text=f"Game {text} started"
+                            players[0].user.id, text=f"Game {text} started"
                         )
                         await bot.send_message(
-                            player_commitment.p2.id, text=f"Game {text} started"
+                            players[1].user.id, text=f"Game {text} started"
                         )
                     else:
                         text = "multi player"
@@ -150,7 +150,7 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                     players = [Player(player_commitment.p1)]
 
                 game_started = True
-                player_commitment.start()
+                player_commitment.clear()
                 midgame = True
             else:
                 if midgame is False:
@@ -205,7 +205,6 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                         caption=get_player_message(players[1], players[0]),
                     )
                 video_path.unlink()
-                player_commitment.clear()
             break
 
         # 10 fps
