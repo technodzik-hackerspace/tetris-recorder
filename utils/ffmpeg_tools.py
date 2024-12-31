@@ -29,6 +29,6 @@ def create_video(
     if proc.returncode != 0:
         print(stdin.decode())
         print(stdout.decode())
-        raise Exception()
+        raise Exception("Failed to create video")
 
     # assert proc.returncode == 0
