@@ -26,7 +26,9 @@ def create_video(
     )
     stdin, stdout = proc.communicate()
 
-    # print(stdin.decode())
-    # print(stdout.decode())
+    if proc.returncode != 0:
+        print(stdin.decode())
+        print(stdout.decode())
+        raise Exception()
 
-    assert proc.returncode == 0
+    # assert proc.returncode == 0
