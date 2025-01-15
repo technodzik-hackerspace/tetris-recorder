@@ -186,7 +186,7 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
         if all(i.game_over for i in players) and game_started is True:
             log.info(f"Final score: {last_score}")
 
-            if len(players) == 2 and (players[0].user or players[1].user):
+            if len(players) == 2:
                 video_path = compile_video()
                 log.info(f"Video created: {video_path}")
 
@@ -204,6 +204,15 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                         video_path=video_path,
                         caption=get_player_message(players[1], players[0]),
                     )
+
+                if settings.bot_channel:
+                    await send_video_to_telegram(
+                        bot,
+                        chat_id=settings.bot_channel,
+                        video_path=video_path,
+                        caption=get_chat_message(players[0], players[1]),
+                    )
+
                 video_path.unlink()
             break
 
@@ -213,6 +222,19 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
 
     # Pause for a moment before starting a new recording
     await sleep(1)
+
+
+def get_chat_message(p1: Player, p2: Player):
+    if p1.score > p2.score:
+        caption = p1.name + " wins!"
+    elif p2.score > p1.score:
+        caption = p1.name + " wins!"
+    else:
+        caption = "Draw!"
+
+    caption += f"\n{p1.name} score: {p1.score}\n{p2.name} score: {p2.score}"
+
+    return caption
 
 
 def get_player_message(player: Player, opponent: Player):
