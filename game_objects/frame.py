@@ -4,8 +4,7 @@ import cv2
 import numpy as np
 
 from cv_tools import strip_frame
-from cv_tools.debug import save_image
-from cv_tools.detect_digit import detect_digit, get_refs, RoiRef
+from cv_tools.detect_digit import detect_digit, RoiRef
 from cv_tools.find_game_over import find_game_over
 from cv_tools.score_detect import get_countours
 
@@ -102,8 +101,8 @@ class SideScoreFrame(BaseFrame):
         #     save_image("countour_{}.png".format(n), i)
 
         digits = [detect_digit(i, self.roi_ref) for i in countours]
-
-        return int("".join(digits))
+        if digits:
+            return int("".join(digits))
 
     @cached_property
     def score(self):

@@ -20,13 +20,14 @@ def strip_frame(frame: np.ndarray):
     _frame = frame[y + 1 : y + h - 1, x + 1 : x + w - 1]
 
     # save_image("frame.png", _frame)
+    hs, ws, _ = _frame.shape
 
-    if not (450 > _frame.shape[0] > 350):
-        raise Exception("Wrong height")
-    if not (450 > _frame.shape[1] > 350):
-        raise Exception("Wrong width")
+    if not (450 > hs > 350):
+        raise Exception(f"Wrong height: {hs}x{ws}")
+    if not (450 > ws > 350):
+        raise Exception(f"Wrong width: {hs}x{ws}")
 
-    assert not _frame.shape[0] % 2
-    assert not _frame.shape[1] % 2
+    assert not hs % 2
+    assert not ws % 2
 
     return _frame
