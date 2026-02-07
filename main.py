@@ -102,7 +102,12 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
 
         save_image(frames_path / f"{frame_number:06d}.png", f.image)
 
-        screens = f.get_player_screens(roi_ref)
+        try:
+            screens = f.get_player_screens(roi_ref)
+        except Exception as e:
+            # Can't detect player screens (e.g., main menu "push start button" screen)
+            log.debug(f"Could not detect player screens: {e}")
+            continue
 
         if not game_started:
             try:
@@ -234,7 +239,7 @@ async def main():
 def compile_video():
     timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
     video_path = videos_path / f"game_{timestamp}.mp4"
-    create_video(video_path, framerate=settings.fps)
+    create_video(video_path, frames_path=frames_path / "*.png", framerate=settings.fps)
     clean_dir(frames_path)
     return video_path
 
