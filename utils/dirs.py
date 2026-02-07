@@ -1,6 +1,6 @@
 from pathlib import Path
 
-_root = Path(__file__).parent.parent
+_root = Path.cwd()
 full_frames_path = _root / "full_frames"
 frames_path = _root / "frames"
 regions_path = _root / "regions"

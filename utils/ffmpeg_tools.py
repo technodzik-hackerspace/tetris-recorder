@@ -1,5 +1,8 @@
+import logging
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def ffmpeg_cmd(args: list[str]):
@@ -21,12 +24,14 @@ def create_video(
             f"-i '{frames_path}'",
             "-c:v libx264",
             "-pix_fmt yuv420p",
+            "-y",  # Overwrite output file if exists
             str(filename),
         ]
     )
-    stdin, stdout = proc.communicate()
+    stdout, stderr = proc.communicate()
 
-    # print(stdin.decode())
-    # print(stdout.decode())
-
-    assert proc.returncode == 0
+    if proc.returncode != 0:
+        logger.error(f"ffmpeg failed with return code {proc.returncode}")
+        logger.error(f"ffmpeg stderr: {stderr.decode()}")
+        logger.error(f"ffmpeg stdout: {stdout.decode()}")
+        raise RuntimeError(f"ffmpeg failed: {stderr.decode()}")
