@@ -3,3 +3,4 @@ image_device = "/dev/video0"
 fps = 10
 
 bot_token = ""
+bot_channel = 0

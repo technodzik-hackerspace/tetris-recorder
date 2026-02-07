@@ -18,7 +18,7 @@ from tests.conftest import fixtures_path
 async def test_image_1(img_name, expected, refs, load_image):
     frame = Frame.strip(load_image(img_name))
 
-    players = [Player(), Player()]
+    players = [Player(1), Player(2)]
     for p, screen in zip(players, frame.get_player_screens(refs)):
         p.parse_frame(screen)
 
@@ -41,7 +41,7 @@ async def test_image_2():
 async def test_image_dance(refs, load_image):
     frame = Frame.strip(load_image("test_dance.png"))
 
-    players = [Player(), Player()]
+    players = [Player(1), Player(2)]
     for p, screen in zip(players, frame.get_player_screens(refs)):
         p.parse_frame(screen)
 
@@ -62,7 +62,7 @@ async def test_image_dance(refs, load_image):
 async def test_solo_game_over(img_name, expected, refs, load_image):
     frame = Frame.strip(load_image(img_name))
 
-    players = [Player(), Player()]
+    players = [Player(1), Player(2)]
     for p, screen in zip(players, frame.get_player_screens(refs)):
         p.parse_frame(screen)
 

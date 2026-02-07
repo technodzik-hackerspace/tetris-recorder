@@ -12,7 +12,7 @@ from commitment import player_commitment
 from config import settings
 from cv_tools.debug import save_image
 from cv_tools.detect_digit import get_refs, RoiRef
-from cv_tools.frame_generator import frame_generator
+from cv_tools.frame_generator import frame_stripper
 from game_objects.frame import Frame
 from game_objects.player import Player
 from utils.dirs import (
@@ -75,18 +75,13 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
     clean_dir(frames_path)
     clean_dir(full_frames_path)
 
-    for frame_number, frame in enumerate(frame_generator(image_device)):
+    for frame_number, frame in frame_stripper(image_device):
         await sleep(0)
         log = ILoggerAdapter(_log, {"frame_number": frame_number})
 
         frame_start = utcnow()
 
-        save_image(full_frames_path / f"{frame_number:06d}.png", frame)
-
-        try:
-            f = Frame.strip(frame)
-        except Exception as e:
-            continue
+        f = Frame(frame)
 
         if f.is_paused:
             if not pause_started:
@@ -104,39 +99,58 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
 
         screens = f.get_player_screens(roi_ref)
 
-        if not game_started:
-            try:
-                score1 = screens[0].score_frame.score
-                score2 = screens[1].score_frame.score
-            except Exception as e:
-                clean_dir(frames_path)
-                continue
+        try:
+            score1 = screens[0].score_frame.score
+            score2 = screens[1].score_frame.score
+        except Exception as e:
+            clean_dir(frames_path)
+            continue
 
+        if (
+            game_started
+            and all(i.score for i in players)
+            and score1 == 0
+            and score2 == 0
+        ):
+            game_started = False
+
+        if not game_started:
             if score1 == 0:
                 if score2 == 0:
-                    if player_commitment.p1 and player_commitment.p2:
-                        text = f"P1:{player_commitment.p1_name} vs P2:{player_commitment.p2_name}"
-                        log.info(f"Start: {text}")
+                    players = [
+                        Player(1, player_commitment.p1),
+                        Player(2, player_commitment.p2),
+                    ]
+
+                    if players[0].user and players[1].user:
+                        text = f"P1:{players[0].name} vs P2:{players[1].name}"
 
                         await bot.send_message(
-                            player_commitment.p1.id, text=f"Game {text} started"
+                            players[0].user.id, text=f"Game {text} started"
                         )
                         await bot.send_message(
-                            player_commitment.p2.id, text=f"Game {text} started"
+                            players[1].user.id, text=f"Game {text} started"
                         )
                     else:
-                        log.info("Start: multi player")
+                        text = "multi player"
 
-                    players = [
-                        Player(player_commitment.p1_name),
-                        Player(player_commitment.p2_name),
-                    ]
+                    log.info(f"Start: {text}")
                 else:
                     log.info("Start: single player")
-                    players = [Player(player_commitment.p1_name)]
+                    if player_commitment.p1 and player_commitment.p2:
+                        await bot.send_message(
+                            player_commitment.p1.id,
+                            text="Single game starter, both unregister",
+                        )
+                        await bot.send_message(
+                            player_commitment.p2.id,
+                            text="Single game starter, both unregister",
+                        )
+                        player_commitment.clear()
+                    players = [Player(1, player_commitment.p1)]
 
                 game_started = True
-                player_commitment.start()
+                player_commitment.clear()
                 midgame = True
             else:
                 if midgame is False:
@@ -163,6 +177,10 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
             for go, p in zip(last_game_over, players):
                 if go != p.game_over:
                     log.info(f"{p.name} game over: {p.score}")
+                    if p.user:
+                        await bot.send_message(
+                            p.user.id, text=f"Your game is over, score: {p.score}"
+                        )
             last_game_over = [i.game_over for i in players]
 
         if all(i.game_over for i in players) and game_started is True:
@@ -172,21 +190,30 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                 video_path = compile_video()
                 log.info(f"Video created: {video_path}")
 
-                if player_commitment.p1:
+                if players[0].user:
                     await send_video_to_telegram(
                         bot,
-                        chat_id=player_commitment.p1.id,
+                        chat_id=players[0].user.id,
                         video_path=video_path,
                         caption=get_player_message(players[0], players[1]),
                     )
-                if player_commitment.p2:
+                if players[1].user:
                     await send_video_to_telegram(
                         bot,
-                        chat_id=player_commitment.p2.id,
+                        chat_id=players[1].user.id,
                         video_path=video_path,
                         caption=get_player_message(players[1], players[0]),
                     )
-                player_commitment.clear()
+
+                if settings.bot_channel:
+                    await send_video_to_telegram(
+                        bot,
+                        chat_id=settings.bot_channel,
+                        video_path=video_path,
+                        caption=get_chat_message(players[0], players[1]),
+                    )
+
+                video_path.unlink()
             break
 
         # 10 fps
@@ -195,6 +222,19 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
 
     # Pause for a moment before starting a new recording
     await sleep(1)
+
+
+def get_chat_message(p1: Player, p2: Player):
+    if p1.score > p2.score:
+        caption = p1.name + " wins!"
+    elif p2.score > p1.score:
+        caption = p1.name + " wins!"
+    else:
+        caption = "Draw!"
+
+    caption += f"\n{p1.name} score: {p1.score}\n{p2.name} score: {p2.score}"
+
+    return caption
 
 
 def get_player_message(player: Player, opponent: Player):
@@ -211,6 +251,7 @@ def get_player_message(player: Player, opponent: Player):
 
 
 async def main():
+    log = logging.getLogger("main")
     roi_ref = get_refs()
     image_device = Path(settings.image_device)
 
@@ -223,7 +264,11 @@ async def main():
 
     try:
         while True:
-            await game_loop(bot, image_device, roi_ref)
+            try:
+                await game_loop(bot, image_device, roi_ref)
+            except Exception as e:
+                log.exception(e)
+                continue
     finally:
         clean_dir(frames_path)
         clean_dir(regions_path)
