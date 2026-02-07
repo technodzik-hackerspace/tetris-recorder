@@ -177,6 +177,16 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                 video_path = compile_video()
                 log.info(f"Video created: {video_path}")
 
+                # Always send to channel
+                caption = f"🎮 Game Over!\nP1: {players[0].score} | P2: {players[1].score}"
+                await send_video_to_telegram(
+                    bot,
+                    chat_id=settings.bot_channel,
+                    video_path=video_path,
+                    caption=caption,
+                )
+                log.info(f"Video sent to channel {settings.bot_channel}")
+
                 if player_commitment.p1:
                     await send_video_to_telegram(
                         bot,
