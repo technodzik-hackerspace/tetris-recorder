@@ -5,7 +5,7 @@ import pytest
 
 from cv_tools.detect_digit import get_refs
 
-fixtures_path = Path(__file__).parent.resolve() / "fixtures"
+fixtures_path = Path(__file__).parent.resolve() / "fixtures_fullhd"
 
 
 @pytest.fixture

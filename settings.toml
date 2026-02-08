@@ -1,5 +1,7 @@
 [default]
 image_device = "/dev/video0"
 fps = 10
+debug = false
+debug_video = "gameplay_example_new.mp4"
 
 bot_token = ""
