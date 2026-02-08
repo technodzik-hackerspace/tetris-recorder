@@ -251,13 +251,10 @@ class PlayerScreen:
 
 
 class Frame(BaseFrame):
-    """Frame for 1080p input. Stores both original and scaled versions."""
+    """Frame for 1080p input."""
 
-    def __init__(self, original_image: np.array, scaled_image: np.array):
-        # Store original 1080p image for video output
-        self.original_image = original_image
-        # Use scaled image for detection (algorithms expect ~400px)
-        super().__init__(scaled_image)
+    def __init__(self, image: np.array):
+        super().__init__(image)
 
     def get_score_frame(self) -> ScoreFrame:
         return ScoreFrame(self.crop(self.score_pos))

@@ -2,12 +2,11 @@ import cv2
 import numpy as np
 
 
-def strip_frame(frame: np.ndarray):
+def strip_frame(frame: np.ndarray) -> np.ndarray:
     """Extract game area from 1920x1080 frame.
 
-    Returns both:
-    - original_frame: Game area at 1080p resolution for video output
-    - detection_frame: Same as original (fullhd detection)
+    Returns the cropped game area with even dimensions for video encoding.
+    Raises Exception if frame is invalid (black screen, wrong dimensions).
     """
     im_bw = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     _, thresh_original = cv2.threshold(im_bw, 5, 255, cv2.THRESH_BINARY)
@@ -38,5 +37,4 @@ def strip_frame(frame: np.ndarray):
     if _frame.shape[1] % 2:
         _frame = _frame[:, :-1]
 
-    # Return original for both video output and detection (fullhd)
-    return _frame, _frame
+    return _frame
