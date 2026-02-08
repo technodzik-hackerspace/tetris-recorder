@@ -7,7 +7,18 @@ RoiRef = dict[str, np.array]
 
 
 def detect_digit(roi: np.array, roi_ref: RoiRef) -> str:
+    # Skip empty ROIs
+    if roi is None or roi.size == 0 or roi.shape[0] == 0 or roi.shape[1] == 0:
+        return ""
+
     scores = {}
+    # Get expected size from first template
+    template_h, template_w = next(iter(roi_ref.values())).shape[:2]
+
+    # Always resize input ROI to match template size
+    if roi.shape[0] != template_h or roi.shape[1] != template_w:
+        roi = cv2.resize(roi, (template_w, template_h))
+
     for digit, digit_roi in roi_ref.items():
         # apply correlation-based template matching, take the
         # score, and update the scores list
@@ -21,7 +32,7 @@ def detect_digit(roi: np.array, roi_ref: RoiRef) -> str:
 def get_refs() -> RoiRef:
     results = {}
 
-    for i in (Path(__file__).parent.parent / "digits").iterdir():
+    for i in (Path(__file__).parent.parent / "digits_fullhd").iterdir():
         val = i.stem
         img = cv2.imread(str(i))
 

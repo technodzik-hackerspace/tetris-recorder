@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import logging
 from asyncio import sleep
@@ -83,9 +84,15 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
 
         save_image(full_frames_path / f"{frame_number:06d}.png", frame)
 
+        # Log state every 100 frames
+        if frame_number % 100 == 0:
+            log.info(f"Frame {frame_number}, input shape: {frame.shape}")
+
         try:
             f = Frame.strip(frame)
         except Exception as e:
+            if frame_number % 100 == 0:
+                log.warning(f"Frame.strip failed: {e}, input shape: {frame.shape}")
             continue
 
         if f.is_paused:
@@ -98,9 +105,14 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
             pause_started = False
 
         if not f.is_game:
+            if frame_number % 100 == 0:
+                log.info("Game not detected")
             continue
 
-        save_image(frames_path / f"{frame_number:06d}.png", f.image)
+        if frame_number % 100 == 0:
+            log.info("Game detected, recording frame")
+
+        save_image(frames_path / f"{frame_number:06d}.png", frame)
 
         try:
             screens = f.get_player_screens(roi_ref)
@@ -160,6 +172,45 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
         if players[0].score is None:
             break
 
+        # Detect new game start (scores reset to 0-0) during an active game
+        # This indicates the previous game ended without proper GAME OVER detection
+        if (
+            game_started
+            and len(players) == 2
+            and all(p.score == 0 for p in players)
+            and any(s is not None and s > 0 for s in last_score)
+        ):
+            log.info(f"New game detected (scores reset). Final score was: {last_score}")
+            video_path = compile_video()
+            log.info(f"Video created: {video_path}")
+
+            if bot:
+                caption = f"🎮 Game Over!\nP1: {last_score[0]} | P2: {last_score[1]}"
+                await send_video_to_telegram(
+                    bot,
+                    chat_id=settings.bot_channel,
+                    video_path=video_path,
+                    caption=caption,
+                )
+                log.info(f"Video sent to channel {settings.bot_channel}")
+
+            if player_commitment.p1:
+                await send_video_to_telegram(
+                    bot,
+                    chat_id=player_commitment.p1.id,
+                    video_path=video_path,
+                    caption=f"Game ended!\nFinal scores - P1: {last_score[0]} | P2: {last_score[1]}",
+                )
+            if player_commitment.p2:
+                await send_video_to_telegram(
+                    bot,
+                    chat_id=player_commitment.p2.id,
+                    video_path=video_path,
+                    caption=f"Game ended!\nFinal scores - P1: {last_score[0]} | P2: {last_score[1]}",
+                )
+            player_commitment.clear()
+            break
+
         if last_score != [i.score for i in players]:
             last_score = [i.score for i in players]
             log.info(f"Score: {last_score}")
@@ -177,15 +228,16 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                 video_path = compile_video()
                 log.info(f"Video created: {video_path}")
 
-                # Always send to channel
-                caption = f"🎮 Game Over!\nP1: {players[0].score} | P2: {players[1].score}"
-                await send_video_to_telegram(
-                    bot,
-                    chat_id=settings.bot_channel,
-                    video_path=video_path,
-                    caption=caption,
-                )
-                log.info(f"Video sent to channel {settings.bot_channel}")
+                if bot:
+                    # Always send to channel
+                    caption = f"🎮 Game Over!\nP1: {players[0].score} | P2: {players[1].score}"
+                    await send_video_to_telegram(
+                        bot,
+                        chat_id=settings.bot_channel,
+                        video_path=video_path,
+                        caption=caption,
+                    )
+                    log.info(f"Video sent to channel {settings.bot_channel}")
 
                 if player_commitment.p1:
                     await send_video_to_telegram(
@@ -226,11 +278,27 @@ def get_player_message(player: Player, opponent: Player):
 
 
 async def main():
+    logging.basicConfig(level=logging.INFO)
     roi_ref = get_refs()
-    image_device = Path(settings.image_device)
 
-    bot = await get_bot()
-    task = asyncio.create_task(start_polling(bot))
+    debug_mode = getattr(settings, "debug", False)
+    no_bot = getattr(settings, "no_bot", False)
+
+    # Debug mode: use video file instead of capture device
+    if debug_mode:
+        image_device = Path(settings.debug_video)
+        logging.info(f"Debug mode: using video file {image_device}")
+    else:
+        image_device = Path(settings.image_device)
+
+    # Initialize bot unless --no-bot is specified
+    bot = None
+    task = None
+    if not no_bot:
+        bot = await get_bot()
+        task = asyncio.create_task(start_polling(bot))
+    else:
+        logging.info("Running without Telegram bot")
 
     clean_dir(frames_path)
     clean_dir(regions_path)
@@ -239,11 +307,15 @@ async def main():
     try:
         while True:
             await game_loop(bot, image_device, roi_ref)
+            if debug_mode:
+                logging.info("Debug mode: exiting after processing video")
+                break
     finally:
         clean_dir(frames_path)
         clean_dir(regions_path)
-        task.cancel()
-        await task
+        if task:
+            task.cancel()
+            await task
 
 
 def compile_video():
@@ -254,5 +326,32 @@ def compile_video():
     return video_path
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Tetris Recorder")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Run in debug mode using gameplay_example.mp4 as input",
+    )
+    parser.add_argument(
+        "--video",
+        type=str,
+        help="Path to video file (implies --debug)",
+    )
+    parser.add_argument(
+        "--no-bot",
+        action="store_true",
+        help="Skip Telegram bot integration (useful for testing)",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    args = parse_args()
+    if args.debug or args.video:
+        settings.debug = True
+        if args.video:
+            settings.debug_video = args.video
+    if args.no_bot:
+        settings.no_bot = True
     asyncio.run(main())

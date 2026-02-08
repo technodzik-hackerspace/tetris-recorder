@@ -5,7 +5,8 @@ from utils.dirs import regions_path  # noqa
 
 
 def find_game_over(image: np.array) -> bool:
-    image = image[image.shape[0] // 3 : image.shape[0] // 3 * 2, :]
+    # Search in upper half of the screen where GAME OVER box typically appears
+    image = image[: image.shape[0] // 2, :]
 
     # save_image(regions_path / "game_over1.png", image)
     lower = np.array([0, 0, 150])

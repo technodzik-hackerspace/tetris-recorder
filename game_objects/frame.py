@@ -3,7 +3,7 @@ from functools import cached_property
 import cv2
 import numpy as np
 
-from cv_tools import strip_frame
+from cv_tools.strip_frame import strip_frame
 from cv_tools.debug import save_image
 from cv_tools.detect_digit import detect_digit, get_refs, RoiRef
 from cv_tools.find_game_over import find_game_over
@@ -42,38 +42,33 @@ class SideScoreFrame(BaseFrame):
 
     @cached_property
     def lines_pos(self) -> tuple[Rect, Rect, Rect]:
-        mid = self.image.shape[0] // 2
-        mask = self.mask()
-        line = self.mid_line(mask)
+        """Find three horizontal regions for score, lines, and level.
 
-        start_top = None
-        for n, l in enumerate(line[:][mid::-1]):
-            if start_top is None:
-                if l[0] != 0:
-                    start_top = mid - n + 1
-            else:
-                if l[0] == 0:
-                    end_top = mid - n
-                    break
-        else:
-            raise Exception("top not found")
+        Divides the image into three roughly equal parts, ensuring each
+        region is tall enough to contain digit templates (~40 pixels).
+        """
+        height = self.image.shape[0]
+        width = self.image.shape[1]
 
-        start_bottom = None
-        for n, l in enumerate(line[:][mid:]):
-            if start_bottom is None:
-                if l[-1] != 0:
-                    start_bottom = mid + n - 1
-            else:
-                if l[-1] == 0:
-                    end_bottom = mid + n
-                    break
-        else:
-            raise Exception("bottom not found")
+        # Divide into three regions with some overlap to ensure digits are captured
+        # Each region should be at least 50 pixels tall for reliable digit detection
+        third = height // 3
+        min_height = 50
+
+        # Score region: top third
+        score_end = max(third, min_height)
+
+        # Lines region: middle third (with some overlap)
+        lines_start = third - 10 if third > 10 else 0
+        lines_end = 2 * third + 10
+
+        # Level region: bottom third
+        level_start = 2 * third - 10 if 2 * third > 10 else third
 
         return (
-            ((0, 0), (end_top, self.image.shape[1])),
-            ((start_top, 0), (start_bottom, self.image.shape[1])),
-            ((end_bottom, 0), (self.image.shape[0], self.image.shape[1])),
+            ((0, 0), (score_end, width)),
+            ((lines_start, 0), (lines_end, width)),
+            ((level_start, 0), (height, width)),
         )
 
     @property
@@ -102,7 +97,11 @@ class SideScoreFrame(BaseFrame):
         #     save_image("countour_{}.png".format(n), i)
 
         digits = [detect_digit(i, self.roi_ref) for i in countours]
+        # Filter out empty results from invalid contours
+        digits = [d for d in digits if d]
 
+        if not digits:
+            return None
         return int("".join(digits))
 
     @cached_property
@@ -127,9 +126,30 @@ class LeftScoreFrame(SideScoreFrame):
         mask = self.mask()
 
         def strip(image: np.array) -> int:
-            for n, p in enumerate(image[-1][::-1]):
-                if p != 0:
-                    return image.shape[1] - n
+            """Find where score digits start - scan from right to find content."""
+            if image.shape[0] == 0 or image.shape[1] == 0:
+                return 0
+            # Use vertical projection - scan from right to find where content starts
+            col_sums = np.sum(image, axis=0)
+            # Find rightmost non-zero column (end of content)
+            end = None
+            for i in range(len(col_sums) - 1, -1, -1):
+                if col_sums[i] > 0:
+                    end = i + 1
+                    break
+            if end is None:
+                return 0
+            # Find a significant gap (5+ zeros) before content, scanning from right
+            consecutive_zeros = 0
+            min_gap = 5
+            for i in range(end - 1, -1, -1):
+                if col_sums[i] == 0:
+                    consecutive_zeros += 1
+                    if consecutive_zeros >= min_gap:
+                        return i + min_gap
+                else:
+                    consecutive_zeros = 0
+            return 0
 
         lines = self.lines_pos
         offsets = [strip(self.crop_image(mask, i)) for i in lines]
@@ -150,19 +170,36 @@ class RightScoreFrame(SideScoreFrame):
     def lines_stripped(self) -> list[Rect]:
         mask = self.mask()
 
-        # save_image("mask.png", mask)
-
         def strip(image: np.array) -> int:
-            for n, p in enumerate(image[-1]):
-                if p != 0:
-                    return n
+            """Find where score digits end using vertical projection."""
+            if image.shape[0] == 0 or image.shape[1] == 0:
+                return None
+            # Sum columns vertically - columns with digits will have high sums
+            col_sums = np.sum(image, axis=0)
+            # Find first non-zero column (start of content)
+            start = None
+            for i, s in enumerate(col_sums):
+                if s > 0:
+                    start = i
+                    break
+            if start is None:
+                return None
+            # Find a significant gap (5+ consecutive empty columns) after content
+            consecutive_zeros = 0
+            min_gap = 5
+            for i, s in enumerate(col_sums[start:]):
+                if s == 0:
+                    consecutive_zeros += 1
+                    if consecutive_zeros >= min_gap:
+                        return start + i - min_gap + 1
+                else:
+                    consecutive_zeros = 0
+            return len(col_sums)
 
         lines = self.lines_pos
-        # for n, i in enumerate(lines):
-        #     save_image(f"{n}.png", self.crop_image(mask, i))
-
         offsets = [strip(self.crop_image(mask, i)) for i in lines]
 
+        # Crop from start to where content ends
         stripped = [
             ((line[0][0], line[0][1]), (line[1][0], s))
             for line, s in zip(lines, offsets)
@@ -174,45 +211,23 @@ class RightScoreFrame(SideScoreFrame):
 class ScoreFrame(BaseFrame):
     @cached_property
     def sides_pos(self) -> tuple[Rect, Rect]:
-        sf = self.image
-        mid = sf.shape[1] // 2
+        """Split the score frame into left and right player regions.
 
-        mask = self.mask()
-        line = mask[-1]
+        The score frame layout is: [P1 NEXT + Score] [Center Labels] [P2 Score + NEXT]
+        The player regions are roughly the outer 42% on each side.
+        """
+        height = self.image.shape[0]
+        width = self.image.shape[1]
 
-        # save_image("mask.png", mask)
-
-        start_left = None
-        for i in range(mid, 0, -1):
-            if start_left is None:
-                if line[i] != 0:
-                    start_left = i
-                    continue
-            else:
-                if line[i] == 0:
-                    end_left = i
-                    break
-        else:
-            raise Exception("left not found")
-
-        start_right = None
-        for i in range(mid, mask.shape[1]):
-            if start_right is None:
-                if line[i] != 0:
-                    start_right = i
-                    continue
-            else:
-                if line[i] == 0:
-                    end_right = i
-                    break
-        else:
-            raise Exception("right not found")
-
-        # save_image("mask2.png", self.crop(((0, 0), (self.image.shape[0], end_left + 1))))
+        # Player regions are approximately 42% of width on each side
+        # This leaves ~16% for center labels (SCORE, LINES, LEVEL)
+        player_width_ratio = 0.42
+        end_left = int(width * player_width_ratio)
+        start_right = int(width * (1 - player_width_ratio))
 
         return (
-            ((0, 0), (self.image.shape[0], end_left + 1)),
-            ((0, end_right), (self.image.shape[0], self.image.shape[1])),
+            ((0, 0), (height, end_left)),
+            ((0, start_right), (height, width)),
         )
 
     def get_sides(self, roi_ref: RoiRef) -> tuple[LeftScoreFrame, RightScoreFrame]:
@@ -236,6 +251,14 @@ class PlayerScreen:
 
 
 class Frame(BaseFrame):
+    """Frame for 1080p input. Stores both original and scaled versions."""
+
+    def __init__(self, original_image: np.array, scaled_image: np.array):
+        # Store original 1080p image for video output
+        self.original_image = original_image
+        # Use scaled image for detection (algorithms expect ~400px)
+        super().__init__(scaled_image)
+
     def get_score_frame(self) -> ScoreFrame:
         return ScoreFrame(self.crop(self.score_pos))
 
@@ -254,7 +277,6 @@ class Frame(BaseFrame):
         for n, line in enumerate(self.image[mid[0] :: -1]):
             if tuple(line[mid[1]]) != (0, 0, 0):
                 top_internal = mid[0] - n
-                # save_image("top_internal.png", self.data[top_internal:, :])
                 break
         else:
             raise Exception("Top internal not found")
@@ -262,7 +284,6 @@ class Frame(BaseFrame):
         for n, line in enumerate(self.image[top_internal::-1]):
             if tuple(line[mid[1]]) == (0, 0, 0):
                 top = top_internal - n + 1
-                # save_image("top_external.png", self.data[top:, :])
                 break
         else:
             raise Exception("Top external not found")
@@ -270,7 +291,6 @@ class Frame(BaseFrame):
         for i in range(mid[1], 0, -1):
             if tuple(self.image[top, i]) == (0, 0, 0):
                 left = i
-                # save_image("top_left.png", self.data[top:, :left])
                 break
         else:
             raise Exception("top_external_left not found")
@@ -278,7 +298,6 @@ class Frame(BaseFrame):
         for i in range(mid[1], self.image.shape[1]):
             if tuple(self.image[top, i]) == (0, 0, 0):
                 right = i
-                # save_image("top_right.png", self.data[top:, right:])
                 break
         else:
             raise Exception("top_external_right not found")
@@ -293,7 +312,6 @@ class Frame(BaseFrame):
         for n, line in enumerate(self.image[top - 1 :: -1]):
             if tuple(line[mid[1]]) != (0, 0, 0):
                 external_bottom = top - n - 1
-                # save_image("frame.png", self.data[:frame_bottom, :])
                 break
         else:
             raise Exception("Frame top not found")
@@ -301,7 +319,6 @@ class Frame(BaseFrame):
         for n, line in enumerate(self.image[external_bottom::-1]):
             if tuple(line[mid[1]]) == (0, 0, 0):
                 internal_bottom = external_bottom - n + 1
-                # save_image("frame.png", self.data[:internal_bottom, :])
                 break
         else:
             raise Exception("Frame bottom not found")
@@ -329,12 +346,10 @@ class Frame(BaseFrame):
             arc,
             ((0, shape[1] // 10), (shape[0], shape[1] - shape[1] // 10)),
         )
-        # save_image("arc.png", arc)
 
         lower = np.array([0, 0, 200])
         upper = np.array([50, 50, 255])
         mask = cv2.inRange(arc, lower, upper)
-        # save_image("mask.png", mask)
 
         return bool(mask.any())
 
@@ -348,8 +363,28 @@ class Frame(BaseFrame):
                 (-1, -1),
             ),
         )
-        return bool(bottom.any())
+        if bool(bottom.any()):
+            return True
+
+        # Also check for NEXT label (blue text) in left/right side areas only
+        # This helps detect game start frames where arc is empty
+        # The NEXT label appears on the sides during gameplay, not in the center
+        try:
+            score_frame = self.crop(self.score_pos)
+            width = score_frame.shape[1]
+            # Check left 1/4 and right 1/4 for NEXT label
+            left_side = score_frame[:, :width // 4]
+            right_side = score_frame[:, 3 * width // 4:]
+
+            left_mask = cv2.inRange(left_side, (0, 0, 150), (100, 100, 255))
+            right_mask = cv2.inRange(right_side, (0, 0, 150), (100, 100, 255))
+
+            # Both sides should have NEXT labels during 2-player gameplay
+            return cv2.countNonZero(left_mask) > 50 and cv2.countNonZero(right_mask) > 50
+        except Exception:
+            return False
 
     @classmethod
     def strip(cls, frame: np.ndarray):
-        return cls(strip_frame(frame))
+        original, scaled = strip_frame(frame)
+        return cls(original, scaled)

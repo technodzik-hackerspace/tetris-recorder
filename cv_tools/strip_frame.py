@@ -3,6 +3,12 @@ import numpy as np
 
 
 def strip_frame(frame: np.ndarray):
+    """Extract game area from 1920x1080 frame.
+
+    Returns both:
+    - original_frame: Game area at 1080p resolution for video output
+    - detection_frame: Same as original (fullhd detection)
+    """
     im_bw = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
     _, thresh_original = cv2.threshold(im_bw, 5, 255, cv2.THRESH_BINARY)
     contours, hierarchy = cv2.findContours(
@@ -19,14 +25,18 @@ def strip_frame(frame: np.ndarray):
 
     _frame = frame[y + 1 : y + h - 1, x + 1 : x + w - 1]
 
-    # save_image("frame.png", _frame)
+    # Validate dimensions for 1080p input (game area ~900-1250px)
+    h, w = _frame.shape[:2]
+    if not (1250 > h > 900):
+        raise Exception(f"Wrong height: {h}")
+    if not (1250 > w > 900):
+        raise Exception(f"Wrong width: {w}")
 
-    if not (450 > _frame.shape[0] > 350):
-        raise Exception("Wrong height")
-    if not (450 > _frame.shape[1] > 350):
-        raise Exception("Wrong width")
+    # Ensure even dimensions for video encoding
+    if _frame.shape[0] % 2:
+        _frame = _frame[:-1, :]
+    if _frame.shape[1] % 2:
+        _frame = _frame[:, :-1]
 
-    assert not _frame.shape[0] % 2
-    assert not _frame.shape[1] % 2
-
-    return _frame
+    # Return original for both video output and detection (fullhd)
+    return _frame, _frame
