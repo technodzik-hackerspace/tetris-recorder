@@ -41,19 +41,13 @@ stdenv.mkDerivation rec {
     owner = "technodzik-hackerspace";
     repo = "tetris-recorder";
     rev = "main";
-    hash = "sha256-y0bbsIhBSgHBr2nHcPL1RIq0zQO6CQVJZfjaxQcor1w=";
+    hash = "sha256-ob89o6vmFrag0SRM8lhBt00XYjEGbTmdVNfklDb/CGQ=";
   };
 
   nativeBuildInputs = [ makeWrapper ];
   buildInputs = [ pythonEnv ffmpeg ];
 
   dontBuild = true;
-
-  # Fix deprecated default_settings_paths -> settings_files
-  postPatch = ''
-    substituteInPlace config.py \
-      --replace "default_settings_paths" "settings_files"
-  '';
 
   installPhase = ''
     runHook preInstall
