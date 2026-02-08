@@ -8,8 +8,7 @@ from pathlib import Path
 
 from aiogram import Bot
 
-from bot import get_bot, send_video_to_telegram, start_polling
-from commitment import player_commitment
+from bot import get_bot, send_video_to_telegram
 from config import settings
 from cv_tools.debug import save_image
 from cv_tools.detect_digit import get_refs, RoiRef
@@ -62,7 +61,7 @@ def get_frame_logger(name):
     return _log
 
 
-async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
+async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
     _log = get_frame_logger("game")
 
     midgame = False
@@ -125,35 +124,14 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
             try:
                 score1 = screens[0].score_frame.score
                 score2 = screens[1].score_frame.score
-            except Exception as e:
+            except Exception:
                 clean_dir(frames_path)
                 continue
 
-            if score1 == 0:
-                if score2 == 0:
-                    if player_commitment.p1 and player_commitment.p2:
-                        text = f"P1:{player_commitment.p1_name} vs P2:{player_commitment.p2_name}"
-                        log.info(f"Start: {text}")
-
-                        await bot.send_message(
-                            player_commitment.p1.id, text=f"Game {text} started"
-                        )
-                        await bot.send_message(
-                            player_commitment.p2.id, text=f"Game {text} started"
-                        )
-                    else:
-                        log.info("Start: multi player")
-
-                    players = [
-                        Player(player_commitment.p1_name),
-                        Player(player_commitment.p2_name),
-                    ]
-                else:
-                    log.info("Start: single player")
-                    players = [Player(player_commitment.p1_name)]
-
+            if score1 == 0 and score2 == 0:
+                log.info("Start: 2 player game")
+                players = [Player("P1"), Player("P2")]
                 game_started = True
-                player_commitment.start()
                 midgame = True
             else:
                 if midgame is False:
@@ -164,8 +142,6 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
         else:
             midgame = False
 
-        # print("Frame: ", frame_number)
-
         for p, screen in zip(players, screens):
             p.parse_frame(screen)
 
@@ -173,10 +149,8 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
             break
 
         # Detect new game start (scores reset to 0-0) during an active game
-        # This indicates the previous game ended without proper GAME OVER detection
         if (
             game_started
-            and len(players) == 2
             and all(p.score == 0 for p in players)
             and any(s is not None and s > 0 for s in last_score)
         ):
@@ -186,29 +160,8 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
 
             if bot:
                 caption = f"🎮 Game Over!\nP1: {last_score[0]} | P2: {last_score[1]}"
-                await send_video_to_telegram(
-                    bot,
-                    chat_id=settings.bot_channel,
-                    video_path=video_path,
-                    caption=caption,
-                )
+                await send_video_to_telegram(bot, video_path, caption)
                 log.info(f"Video sent to channel {settings.bot_channel}")
-
-            if player_commitment.p1:
-                await send_video_to_telegram(
-                    bot,
-                    chat_id=player_commitment.p1.id,
-                    video_path=video_path,
-                    caption=f"Game ended!\nFinal scores - P1: {last_score[0]} | P2: {last_score[1]}",
-                )
-            if player_commitment.p2:
-                await send_video_to_telegram(
-                    bot,
-                    chat_id=player_commitment.p2.id,
-                    video_path=video_path,
-                    caption=f"Game ended!\nFinal scores - P1: {last_score[0]} | P2: {last_score[1]}",
-                )
-            player_commitment.clear()
             break
 
         if last_score != [i.score for i in players]:
@@ -221,39 +174,16 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
                     log.info(f"{p.name} game over: {p.score}")
             last_game_over = [i.game_over for i in players]
 
-        if all(i.game_over for i in players) and game_started is True:
+        if all(i.game_over for i in players) and game_started:
             log.info(f"Final score: {last_score}")
 
-            if len(players) == 2:
-                video_path = compile_video()
-                log.info(f"Video created: {video_path}")
+            video_path = compile_video()
+            log.info(f"Video created: {video_path}")
 
-                if bot:
-                    # Always send to channel
-                    caption = f"🎮 Game Over!\nP1: {players[0].score} | P2: {players[1].score}"
-                    await send_video_to_telegram(
-                        bot,
-                        chat_id=settings.bot_channel,
-                        video_path=video_path,
-                        caption=caption,
-                    )
-                    log.info(f"Video sent to channel {settings.bot_channel}")
-
-                if player_commitment.p1:
-                    await send_video_to_telegram(
-                        bot,
-                        chat_id=player_commitment.p1.id,
-                        video_path=video_path,
-                        caption=get_player_message(players[0], players[1]),
-                    )
-                if player_commitment.p2:
-                    await send_video_to_telegram(
-                        bot,
-                        chat_id=player_commitment.p2.id,
-                        video_path=video_path,
-                        caption=get_player_message(players[1], players[0]),
-                    )
-                player_commitment.clear()
+            if bot:
+                caption = f"Game Over!\nP1: {players[0].score} | P2: {players[1].score}"
+                await send_video_to_telegram(bot, video_path, caption)
+                log.info(f"Video sent to channel {settings.bot_channel}")
             break
 
         # 10 fps
@@ -262,19 +192,6 @@ async def game_loop(bot: Bot, image_device: Path, roi_ref: RoiRef):
 
     # Pause for a moment before starting a new recording
     await sleep(1)
-
-
-def get_player_message(player: Player, opponent: Player):
-    if player.score > opponent.score:
-        caption = "You win!"
-    elif player.score < opponent.score:
-        caption = "You lose!"
-    else:
-        caption = "Draw!"
-
-    caption += f"\nYour score: {player.score}\n{opponent.name} score: {opponent.score}"
-
-    return caption
 
 
 async def main():
@@ -293,10 +210,8 @@ async def main():
 
     # Initialize bot unless --no-bot is specified
     bot = None
-    task = None
     if not no_bot:
-        bot = await get_bot()
-        task = asyncio.create_task(start_polling(bot))
+        bot = get_bot()
     else:
         logging.info("Running without Telegram bot")
 
@@ -313,9 +228,6 @@ async def main():
     finally:
         clean_dir(frames_path)
         clean_dir(regions_path)
-        if task:
-            task.cancel()
-            await task
 
 
 def compile_video():

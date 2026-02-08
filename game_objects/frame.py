@@ -351,37 +351,28 @@ class Frame(BaseFrame):
         return bool(mask.any())
 
     @cached_property
-    def is_game(self) -> bool:
-        arc = self.crop(self.arc_pos)
-        bottom = self.crop_image(
-            arc,
-            (
-                (arc.shape[0] // 2, arc.shape[1] // 2),
-                (-1, -1),
-            ),
-        )
-        if bool(bottom.any()):
-            return True
-
-        # Also check for NEXT label (blue text) in left/right side areas only
-        # This helps detect game start frames where arc is empty
-        # The NEXT label appears on the sides during gameplay, not in the center
+    def is_two_player(self) -> bool:
+        """Check if this is a 2-player game by looking for NEXT labels on both sides."""
         try:
             score_frame = self.crop(self.score_pos)
             width = score_frame.shape[1]
-            # Check left 1/4 and right 1/4 for NEXT label
-            left_side = score_frame[:, :width // 4]
-            right_side = score_frame[:, 3 * width // 4:]
+            # Check left 1/4 and right 1/4 for NEXT label (blue text)
+            left_side = score_frame[:, : width // 4]
+            right_side = score_frame[:, 3 * width // 4 :]
 
             left_mask = cv2.inRange(left_side, (0, 0, 150), (100, 100, 255))
             right_mask = cv2.inRange(right_side, (0, 0, 150), (100, 100, 255))
 
-            # Both sides should have NEXT labels during 2-player gameplay
+            # Both sides must have NEXT labels for 2-player game
             return cv2.countNonZero(left_mask) > 50 and cv2.countNonZero(right_mask) > 50
         except Exception:
             return False
 
+    @cached_property
+    def is_game(self) -> bool:
+        """Check if this is a 2-player game (only 2-player games are supported)."""
+        return self.is_two_player
+
     @classmethod
     def strip(cls, frame: np.ndarray):
-        original, scaled = strip_frame(frame)
-        return cls(original, scaled)
+        return cls(strip_frame(frame))
