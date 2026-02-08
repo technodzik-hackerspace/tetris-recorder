@@ -1,4 +1,5 @@
 from functools import cached_property
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -11,6 +12,21 @@ from cv_tools.score_detect import get_countours
 
 Point = tuple[int, int]
 Rect = tuple[Point, Point]
+
+# Bonus template for detecting bonus screens
+_bonus_template = None
+
+
+def get_bonus_template() -> np.ndarray | None:
+    """Load the bonus template image for template matching."""
+    global _bonus_template
+    if _bonus_template is None:
+        template_path = Path(__file__).parent.parent / "templates" / "bonus.png"
+        if template_path.exists():
+            img = cv2.imread(str(template_path))
+            if img is not None:
+                _bonus_template = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return _bonus_template
 
 
 class BaseFrame:
@@ -336,7 +352,46 @@ class Frame(BaseFrame):
         )
 
     @cached_property
+    def is_bonus(self) -> bool:
+        """Check if this frame shows a bonus screen.
+
+        Uses template matching to find the BONUS text in a specific region.
+        The bonus text appears at a fixed location in the upper-left of the frame
+        (approximately x=10, y=211 in stripped frame coordinates).
+        """
+        template = get_bonus_template()
+        if template is None:
+            return False
+
+        # Crop to the region where bonus text appears (with margin for safety)
+        # Bonus appears at ~(x=10, y=211), template is ~73x396 pixels
+        # Search region: y=150-350, x=0-500
+        y1, y2 = 150, 350
+        x1, x2 = 0, 500
+
+        # Ensure crop region is within frame bounds
+        h, w = self.image.shape[:2]
+        y2 = min(y2, h)
+        x2 = min(x2, w)
+
+        if y2 - y1 < template.shape[0] or x2 - x1 < template.shape[1]:
+            return False
+
+        crop = self.image[y1:y2, x1:x2]
+        gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+        result = cv2.matchTemplate(gray_crop, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(result)
+
+        # Threshold for bonus detection (0.8 is conservative, template match is usually >0.99)
+        return max_val > 0.8
+
+    @cached_property
     def is_paused(self):
+        # Check for bonus screen first (treat as paused)
+        if self.is_bonus:
+            return True
+
         arc = self.crop(self.arc_pos)
         shape = arc.shape
         arc = self.crop_image(

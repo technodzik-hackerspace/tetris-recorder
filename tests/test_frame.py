@@ -33,11 +33,28 @@ def test_score_frame(img_name, expected, refs, load_image):
         ("game_over_both.png", False),
         ("game_over_solo.png", False),
         ("menu.png", False),
+        ("game_bonus.png", True),  # Bonus frames are treated as paused
     ],
 )
 def test_is_paused(img_name, expected, load_image):
     f = Frame.strip(load_image(img_name))
     assert f.is_paused == expected
+
+
+@pytest.mark.parametrize(
+    "img_name,expected",
+    [
+        ("game_started_multi.png", False),
+        ("326_2580.png", False),
+        ("12283_2680.png", False),
+        ("game_over_both.png", False),
+        ("menu.png", False),
+        ("game_bonus.png", True),
+    ],
+)
+def test_is_bonus(img_name, expected, load_image):
+    f = Frame.strip(load_image(img_name))
+    assert f.is_bonus == expected
 
 
 def test_menu(load_image):

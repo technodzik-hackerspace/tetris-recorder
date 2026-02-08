@@ -164,4 +164,6 @@ regions/*.png
 full_frames/*.png
 test_frames/*.png
 videos/*.mp4
+games/
+downloaded_games
 .secrets.toml
