@@ -13,13 +13,11 @@ from config import settings
 from cv_tools.debug import save_image
 from cv_tools.detect_digit import get_refs, RoiRef
 from cv_tools.frame_generator import frame_generator
-from game_objects.frame import Frame
-from game_objects.player import Player
+from game_objects.frame_classifier import FrameClassifier
+from game_objects.game_state import GameState, GameStateMachine
 from utils.dirs import (
-    clean_dir,
-    frames_path,
-    full_frames_path,
-    regions_path,
+    cleanup_old_games,
+    create_game_folder,
     videos_path,
 )
 from utils.ffmpeg_tools import create_video
@@ -55,46 +53,78 @@ def get_frame_logger(name):
     for i in _log.handlers:
         _log.removeHandler(i)
     _log.addHandler(h)
-
     _log.setLevel(logging.INFO)
+    _log.propagate = False
 
     return _log
 
 
 async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
+    """Main game loop using FrameClassifier and GameStateMachine.
+
+    Simplified flow:
+    1. Classify each frame
+    2. Skip paused frames
+    3. Update state machine
+    4. Record frames during GAME state (to timestamped folder)
+    5. Handle game over (compile video, send to Telegram, cleanup old games)
+    """
     _log = get_frame_logger("game")
+    classifier = FrameClassifier(roi_ref)
+    state_machine = GameStateMachine()
 
-    midgame = False
     pause_started = False
-    game_started = False
-
-    players: list[Player] = []
     last_score = [None, None]
     last_game_over = [False, False]
+    game_folder: Path | None = None
 
-    clean_dir(frames_path)
-    clean_dir(full_frames_path)
+    # FPS tracking
+    fps_start_time = utcnow()
+    fps_frame_count = 0
 
-    for frame_number, frame in enumerate(frame_generator(image_device)):
+    for frame_number, raw_frame in enumerate(frame_generator(image_device)):
         await sleep(0)
         log = ILoggerAdapter(_log, {"frame_number": frame_number})
+        fps_frame_count += 1
 
-        frame_start = utcnow()
+        # Log state every 100 frames with FPS and timing info
+        if frame_number % 100 == 0 and frame_number > 0:
+            elapsed = (utcnow() - fps_start_time).total_seconds()
+            fps = fps_frame_count / elapsed if elapsed > 0 else 0
+            avg_timing = classifier.cumulative_timing.avg_str()
+            log.info(
+                f"Frame {frame_number}, FPS: {fps:.1f}, "
+                f"state: {state_machine.state.name}, "
+                f"avg timing: [{avg_timing}]"
+            )
+            # Reset counters for next interval
+            fps_start_time = utcnow()
+            fps_frame_count = 0
+            classifier.cumulative_timing.reset()
+        elif frame_number == 0:
+            log.info(
+                f"Frame {frame_number}, input shape: {raw_frame.shape}, "
+                f"state: {state_machine.state.name}"
+            )
 
-        save_image(full_frames_path / f"{frame_number:06d}.png", frame)
+        # 1. Classify frame
+        # In debug mode during GAME state, skip score detection except every 100 frames
+        # to improve performance. Always detect scores when game_over might be happening.
+        debug_mode = getattr(settings, "debug", False)
+        skip_score = (
+            debug_mode
+            and state_machine.state == GameState.GAME
+            and frame_number % 100 != 0
+            and not state_machine.game_over_detected
+        )
+        info = classifier.classify(raw_frame, skip_score=skip_score)
 
-        # Log state every 100 frames
-        if frame_number % 100 == 0:
-            log.info(f"Frame {frame_number}, input shape: {frame.shape}")
+        # If game_over just detected and we skipped scores, re-classify to get final scores
+        if info.both_game_over and skip_score:
+            info = classifier.classify(raw_frame, skip_score=False)
 
-        try:
-            f = Frame.strip(frame)
-        except Exception as e:
-            if frame_number % 100 == 0:
-                log.warning(f"Frame.strip failed: {e}, input shape: {frame.shape}")
-            continue
-
-        if f.is_paused:
+        # 2. Skip paused frames
+        if info.is_paused:
             if not pause_started:
                 log.info("Pause")
                 pause_started = True
@@ -103,92 +133,82 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
             log.info("Resume")
             pause_started = False
 
-        if not f.is_game:
+        # 3. Update state machine
+        old_state, new_state = state_machine.update(info)
+
+        # Log state transitions
+        if old_state != new_state:
+            log.info(f"State transition: {old_state.name} -> {new_state.name}")
+
+        # Create game folder when game starts
+        if old_state != GameState.GAME and new_state == GameState.GAME:
+            game_folder = create_game_folder()
+            log.info(f"Created game folder: {game_folder}")
+
+        # Log when entering menu without recording
+        if new_state == GameState.MENU:
             if frame_number % 100 == 0:
-                log.info("Game not detected")
+                log.info("In menu, waiting for game start")
             continue
 
-        if frame_number % 100 == 0:
-            log.info("Game detected, recording frame")
-
-        save_image(frames_path / f"{frame_number:06d}.png", frame)
-
-        try:
-            screens = f.get_player_screens(roi_ref)
-        except Exception as e:
-            # Can't detect player screens (e.g., main menu "push start button" screen)
-            log.debug(f"Could not detect player screens: {e}")
+        # Log when frame is not tetris
+        if new_state == GameState.NOT_TETRIS:
+            if frame_number % 100 == 0:
+                log.info("Frame not detected as Tetris")
             continue
 
-        if not game_started:
-            try:
-                score1 = screens[0].score_frame.score
-                score2 = screens[1].score_frame.score
-            except Exception:
-                clean_dir(frames_path)
-                continue
+        # 4. Record frames only during GAME state
+        if new_state == GameState.GAME and game_folder is not None:
+            if frame_number % 100 == 0:
+                log.info("Recording game frame")
+            save_image(game_folder / f"{frame_number:06d}.png", raw_frame)
 
-            if score1 == 0 and score2 == 0:
-                log.info("Start: 2 player game")
-                players = [Player("P1"), Player("P2")]
-                game_started = True
-                midgame = True
+            # Log score changes (only when we have valid scores)
+            if info.has_valid_scores:
+                current_score = [info.p1_score, info.p2_score]
+                if last_score != current_score:
+                    last_score = current_score
+                    log.info(f"Score: P1={info.p1_score} P2={info.p2_score}")
+
+            # Log game over status changes
+            current_game_over = [info.p1_game_over, info.p2_game_over]
+            if last_game_over != current_game_over:
+                if info.p1_game_over and not last_game_over[0]:
+                    # Use state machine's score if current info doesn't have it
+                    p1_score = info.p1_score if info.p1_score is not None else state_machine.last_p1_score
+                    log.info(f"P1 game over: {p1_score}")
+                if info.p2_game_over and not last_game_over[1]:
+                    p2_score = info.p2_score if info.p2_score is not None else state_machine.last_p2_score
+                    log.info(f"P2 game over: {p2_score}")
+                if info.both_game_over and not all(last_game_over):
+                    log.info("Both players game over, recording game over screen...")
+                last_game_over = current_game_over
+
+        # 5. Handle game over
+        if new_state == GameState.GAME_OVER:
+            if state_machine.video_ready and game_folder is not None:
+                final_p1 = state_machine.final_p1_score
+                final_p2 = state_machine.final_p2_score
+                log.info(f"Game over! Final score: P1={final_p1} P2={final_p2}")
+
+                video_path = compile_video(game_folder)
+                log.info(f"Video created: {video_path}")
+
+                # Cleanup old game folders, keep last 5
+                removed = cleanup_old_games(keep_count=5)
+                if removed:
+                    log.info(f"Cleaned up {len(removed)} old game folder(s)")
+
+                if bot:
+                    caption = f"Game Over!\nP1: {final_p1} | P2: {final_p2}"
+                    await send_video_to_telegram(bot, video_path, caption)
+                    log.info(f"Video sent to channel {settings.bot_channel}")
             else:
-                if midgame is False:
-                    midgame = True
-                    log.info("Midgame, waiting for start")
-                clean_dir(frames_path)
-                continue
-        else:
-            midgame = False
+                log.info("Game over detected but not a valid game (mid-game join)")
 
-        for p, screen in zip(players, screens):
-            p.parse_frame(screen)
-
-        if players[0].score is None:
+            state_machine.acknowledge_game_over()
+            game_folder = None
             break
-
-        # Detect new game start (scores reset to 0-0) during an active game
-        if (
-            game_started
-            and all(p.score == 0 for p in players)
-            and any(s is not None and s > 0 for s in last_score)
-        ):
-            log.info(f"New game detected (scores reset). Final score was: {last_score}")
-            video_path = compile_video()
-            log.info(f"Video created: {video_path}")
-
-            if bot:
-                caption = f"🎮 Game Over!\nP1: {last_score[0]} | P2: {last_score[1]}"
-                await send_video_to_telegram(bot, video_path, caption)
-                log.info(f"Video sent to channel {settings.bot_channel}")
-            break
-
-        if last_score != [i.score for i in players]:
-            last_score = [i.score for i in players]
-            log.info(f"Score: {last_score}")
-
-        if last_game_over != [i.game_over for i in players]:
-            for go, p in zip(last_game_over, players):
-                if go != p.game_over:
-                    log.info(f"{p.name} game over: {p.score}")
-            last_game_over = [i.game_over for i in players]
-
-        if all(i.game_over for i in players) and game_started:
-            log.info(f"Final score: {last_score}")
-
-            video_path = compile_video()
-            log.info(f"Video created: {video_path}")
-
-            if bot:
-                caption = f"Game Over!\nP1: {players[0].score} | P2: {players[1].score}"
-                await send_video_to_telegram(bot, video_path, caption)
-                log.info(f"Video sent to channel {settings.bot_channel}")
-            break
-
-        # 10 fps
-        spent_time = utcnow() - frame_start
-        await sleep(max(0.0, (1 / settings.fps) - spent_time.total_seconds()))
 
     # Pause for a moment before starting a new recording
     await sleep(1)
@@ -215,26 +235,27 @@ async def main():
     else:
         logging.info("Running without Telegram bot")
 
-    clean_dir(frames_path)
-    clean_dir(regions_path)
-    clean_dir(full_frames_path)
-
-    try:
-        while True:
-            await game_loop(bot, image_device, roi_ref)
-            if debug_mode:
-                logging.info("Debug mode: exiting after processing video")
-                break
-    finally:
-        clean_dir(frames_path)
-        clean_dir(regions_path)
+    while True:
+        await game_loop(bot, image_device, roi_ref)
+        if debug_mode:
+            logging.info("Debug mode: exiting after processing video")
+            break
 
 
-def compile_video():
-    timestamp = utcnow().strftime("%Y%m%d_%H%M%S")
-    video_path = videos_path / f"game_{timestamp}.mp4"
-    create_video(video_path, frames_path=frames_path / "*.png", framerate=settings.fps)
-    clean_dir(frames_path)
+def compile_video(game_folder: Path) -> Path:
+    """Compile frames from a game folder into a video.
+
+    Args:
+        game_folder: Path to the game folder containing PNG frames
+
+    Returns:
+        Path to the created video file
+    """
+    videos_path.mkdir(exist_ok=True)
+    # Use the game folder name for the video (already timestamped)
+    video_name = f"{game_folder.name}.mp4"
+    video_path = videos_path / video_name
+    create_video(video_path, frames_path=game_folder / "*.png", framerate=settings.fps)
     return video_path
 
 
