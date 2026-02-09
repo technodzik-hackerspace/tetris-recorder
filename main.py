@@ -123,13 +123,17 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         if info.both_game_over and skip_score:
             info = classifier.classify(raw_frame, skip_score=False)
 
-        # 2. Skip paused frames (but NOT bonus frames - those should be recorded)
+        # 2. Handle paused frames
+        # When include_pause_frames is True (default), pause frames are recorded
+        # but still tracked for timing calculations
+        include_pause = getattr(settings, "include_pause_frames", True)
         if info.is_paused:
             if not pause_started:
                 log.info("Pause")
                 pause_started = True
                 pause_start_time = utcnow()
-            continue
+            if not include_pause:
+                continue  # Skip recording pause frames
         elif pause_started:
             log.info("Resume")
             pause_started = False

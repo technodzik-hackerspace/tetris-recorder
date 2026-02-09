@@ -94,17 +94,19 @@ class TestSpecificFrames:
         assert not screens[0].is_game_over
         assert screens[1].is_game_over
 
-    def test_pause_940(self, refs):
-        """Frame 940 is paused."""
+    def test_bonus_940(self, refs):
+        """Frame 940 is a bonus screen."""
         frame = load_frame(940)
         f = Frame.strip(frame)
-        assert f.is_paused, "Frame 940 should be detected as paused"
+        assert f.is_bonus, "Frame 940 should be detected as bonus"
+        assert not f.is_paused, "Bonus frames should not be detected as paused"
 
-    def test_pause_960(self, refs):
-        """Frame 960 is paused."""
+    def test_bonus_960(self, refs):
+        """Frame 960 is a bonus screen."""
         frame = load_frame(960)
         f = Frame.strip(frame)
-        assert f.is_paused, "Frame 960 should be detected as paused"
+        assert f.is_bonus, "Frame 960 should be detected as bonus"
+        assert not f.is_paused, "Bonus frames should not be detected as paused"
 
     def test_gameplay_994(self, refs):
         """Frame 994: game continued, P1 score 10618, P2 game over score 2680."""
