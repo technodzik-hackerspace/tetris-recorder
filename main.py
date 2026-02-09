@@ -88,7 +88,7 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         fps_frame_count += 1
 
         # Log state every 100 frames with FPS and timing info
-        if frame_number % 100 == 0 and frame_number > 0:
+        if frame_number % 100 == 0:
             elapsed = (utcnow() - fps_start_time).total_seconds()
             fps = fps_frame_count / elapsed if elapsed > 0 else 0
             avg_timing = classifier.cumulative_timing.avg_str()
@@ -101,11 +101,6 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
             fps_start_time = utcnow()
             fps_frame_count = 0
             classifier.cumulative_timing.reset()
-        elif frame_number == 0:
-            log.info(
-                f"Frame {frame_number}, input shape: {raw_frame.shape}, "
-                f"state: {state_machine.state.name}"
-            )
 
         # 1. Classify frame
         # In debug mode during GAME state, skip score detection except every 100 frames
@@ -123,7 +118,7 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         if info.both_game_over and skip_score:
             info = classifier.classify(raw_frame, skip_score=False)
 
-        # 2. Skip paused frames
+        # 2. Skip paused frames (but NOT bonus frames - those should be recorded)
         if info.is_paused:
             if not pause_started:
                 log.info("Pause")
@@ -132,6 +127,10 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         elif pause_started:
             log.info("Resume")
             pause_started = False
+
+        # Log bonus frames (they will be recorded)
+        if info.is_bonus:
+            log.info("Bonus screen detected")
 
         # 3. Update state machine
         old_state, new_state = state_machine.update(info)

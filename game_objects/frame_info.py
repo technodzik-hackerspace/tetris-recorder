@@ -17,7 +17,8 @@ class FrameInfo:
         p2_score: Player 2 score if detectable, None otherwise
         p1_game_over: True if player 1 has game over
         p2_game_over: True if player 2 has game over
-        is_paused: True if game is paused
+        is_paused: True if game is paused (should NOT be recorded)
+        is_bonus: True if showing bonus screen (SHOULD be recorded)
         raw_frame: The original frame for recording purposes
     """
 
@@ -30,6 +31,7 @@ class FrameInfo:
     p1_game_over: bool
     p2_game_over: bool
     is_paused: bool
+    is_bonus: bool = False
     raw_frame: np.ndarray | None = None
 
     def __hash__(self):
@@ -45,6 +47,7 @@ class FrameInfo:
                 self.p1_game_over,
                 self.p2_game_over,
                 self.is_paused,
+                self.is_bonus,
             )
         )
 

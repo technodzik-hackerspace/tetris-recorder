@@ -388,10 +388,11 @@ class Frame(BaseFrame):
 
     @cached_property
     def is_paused(self):
-        # Check for bonus screen first (treat as paused)
-        if self.is_bonus:
-            return True
+        """Check if game is paused (red indicator in arc area).
 
+        Note: This does NOT include bonus screens. Bonus screens are handled
+        separately and should be recorded in the final video.
+        """
         arc = self.crop(self.arc_pos)
         shape = arc.shape
         arc = self.crop_image(
