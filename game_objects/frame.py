@@ -16,6 +16,9 @@ Rect = tuple[Point, Point]
 # Bonus template for detecting bonus screens
 _bonus_template = None
 
+# Pause template for detecting pause screens
+_pause_template = None
+
 
 def get_bonus_template() -> np.ndarray | None:
     """Load the bonus template image for template matching."""
@@ -27,6 +30,18 @@ def get_bonus_template() -> np.ndarray | None:
             if img is not None:
                 _bonus_template = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return _bonus_template
+
+
+def get_pause_template() -> np.ndarray | None:
+    """Load the pause template image for template matching."""
+    global _pause_template
+    if _pause_template is None:
+        template_path = Path(__file__).parent.parent / "templates" / "pause.png"
+        if template_path.exists():
+            img = cv2.imread(str(template_path))
+            if img is not None:
+                _pause_template = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return _pause_template
 
 
 class BaseFrame:
@@ -399,30 +414,46 @@ class Frame(BaseFrame):
 
     @cached_property
     def is_paused(self):
-        """Check if game is paused (red indicator in arc area).
+        """Check if game is paused by looking for PAUSE box.
+
+        Uses template matching with the pause.png template for reliable detection.
+        The PAUSE box appears in the center of the screen (horizontally centered
+        in the arc/separator area between score and play areas).
 
         Note: This does NOT include bonus screens. Bonus screens are handled
         separately and should be recorded in the final video.
-
-        The pause indicator is a large red bar/text in the arc area.
-        We require a minimum number of red pixels to avoid false positives
-        from small red elements like the GAME OVER box border.
         """
-        arc = self.crop(self.arc_pos)
-        shape = arc.shape
-        arc = self.crop_image(
-            arc,
-            ((0, shape[1] // 10), (shape[0], shape[1] - shape[1] // 10)),
-        )
+        template = get_pause_template()
+        if template is None:
+            return False
 
-        lower = np.array([0, 0, 200])
-        upper = np.array([50, 50, 255])
-        mask = cv2.inRange(arc, lower, upper)
+        # Search in the center region where PAUSE box appears
+        # The PAUSE box is horizontally centered and vertically around the arc
+        h, w = self.image.shape[:2]
 
-        # Require significant red pixels to avoid false positives
-        # from GAME OVER border or other small red elements
-        red_pixels = cv2.countNonZero(mask)
-        return red_pixels > 100
+        # Define search region: center horizontally, around arc vertically
+        # PAUSE box is roughly at y=180-250 (below score area, in arc)
+        y1, y2 = 150, 300
+        x1 = w // 4
+        x2 = 3 * w // 4
+
+        y2 = min(y2, h)
+        x2 = min(x2, w)
+
+        crop = self.image[y1:y2, x1:x2]
+
+        # Check if template fits in the search region
+        if crop.shape[0] < template.shape[0] or crop.shape[1] < template.shape[1]:
+            return False
+
+        # Convert to grayscale for template matching
+        gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+
+        result = cv2.matchTemplate(gray_crop, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(result)
+
+        # Threshold for pause detection
+        return max_val > 0.8
 
     @cached_property
     def is_two_player(self) -> bool:

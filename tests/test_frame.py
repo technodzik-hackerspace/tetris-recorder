@@ -34,6 +34,8 @@ def test_score_frame(img_name, expected, refs, load_image):
         ("game_over_solo.png", False),
         ("menu.png", False),
         ("game_bonus.png", False),  # Bonus frames are NOT paused (they should be recorded)
+        ("game_pause.png", True),  # Actual pause screen with PAUSE box
+        ("p1_in_game_p2_game_over.png", False),  # Similar to pause but without PAUSE box
     ],
 )
 def test_is_paused(img_name, expected, load_image):
