@@ -125,14 +125,17 @@ class FrameClassifier:
 
         frame = Frame(stripped)
 
-        # Check if paused (includes bonus detection)
+        # Check if paused or bonus
         t0 = time.perf_counter()
         try:
             is_paused = frame.is_paused
+            is_bonus = frame.is_bonus
         except Exception:
             is_paused = False
+            is_bonus = False
         timing.is_paused_time = time.perf_counter() - t0
 
+        # Paused frames should NOT be recorded
         if is_paused:
             timing.total_time = time.perf_counter() - total_start
             self.last_timing = timing
@@ -147,6 +150,26 @@ class FrameClassifier:
                 p1_game_over=False,
                 p2_game_over=False,
                 is_paused=True,
+                is_bonus=False,
+                raw_frame=raw_frame,
+            )
+
+        # Bonus frames SHOULD be recorded (return as in_game=True)
+        if is_bonus:
+            timing.total_time = time.perf_counter() - total_start
+            self.last_timing = timing
+            self.cumulative_timing.add(timing)
+            return FrameInfo(
+                is_tetris=True,
+                in_menu=False,
+                in_game=True,
+                game_type="multi",
+                p1_score=None,
+                p2_score=None,
+                p1_game_over=False,
+                p2_game_over=False,
+                is_paused=False,
+                is_bonus=True,
                 raw_frame=raw_frame,
             )
 

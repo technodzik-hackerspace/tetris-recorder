@@ -33,7 +33,7 @@ def test_score_frame(img_name, expected, refs, load_image):
         ("game_over_both.png", False),
         ("game_over_solo.png", False),
         ("menu.png", False),
-        ("game_bonus.png", True),  # Bonus frames are treated as paused
+        ("game_bonus.png", False),  # Bonus frames are NOT paused (they should be recorded)
     ],
 )
 def test_is_paused(img_name, expected, load_image):
@@ -50,6 +50,7 @@ def test_is_paused(img_name, expected, load_image):
         ("game_over_both.png", False),
         ("menu.png", False),
         ("game_bonus.png", True),
+        ("bonus2.png", True),
     ],
 )
 def test_is_bonus(img_name, expected, load_image):

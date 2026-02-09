@@ -78,6 +78,12 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
     last_game_over = [False, False]
     game_folder: Path | None = None
 
+    # Game timing for normalized video framerate
+    game_start_time: datetime | None = None
+    pause_start_time: datetime | None = None
+    total_pause_duration: float = 0.0  # seconds
+    recorded_frame_count: int = 0
+
     # FPS tracking
     fps_start_time = utcnow()
     fps_frame_count = 0
@@ -88,24 +94,18 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         fps_frame_count += 1
 
         # Log state every 100 frames with FPS and timing info
-        if frame_number % 100 == 0 and frame_number > 0:
+        if frame_number % 100 == 0:
             elapsed = (utcnow() - fps_start_time).total_seconds()
             fps = fps_frame_count / elapsed if elapsed > 0 else 0
             avg_timing = classifier.cumulative_timing.avg_str()
             log.info(
-                f"Frame {frame_number}, FPS: {fps:.1f}, "
-                f"state: {state_machine.state.name}, "
+                f"FPS: {fps:.1f}, "
                 f"avg timing: [{avg_timing}]"
             )
             # Reset counters for next interval
             fps_start_time = utcnow()
             fps_frame_count = 0
             classifier.cumulative_timing.reset()
-        elif frame_number == 0:
-            log.info(
-                f"Frame {frame_number}, input shape: {raw_frame.shape}, "
-                f"state: {state_machine.state.name}"
-            )
 
         # 1. Classify frame
         # In debug mode during GAME state, skip score detection except every 100 frames
@@ -123,15 +123,25 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         if info.both_game_over and skip_score:
             info = classifier.classify(raw_frame, skip_score=False)
 
-        # 2. Skip paused frames
+        # 2. Skip paused frames (but NOT bonus frames - those should be recorded)
         if info.is_paused:
             if not pause_started:
                 log.info("Pause")
                 pause_started = True
+                pause_start_time = utcnow()
             continue
         elif pause_started:
             log.info("Resume")
             pause_started = False
+            if pause_start_time is not None:
+                pause_duration = (utcnow() - pause_start_time).total_seconds()
+                total_pause_duration += pause_duration
+                log.info(f"Pause duration: {pause_duration:.1f}s, total paused: {total_pause_duration:.1f}s")
+                pause_start_time = None
+
+        # Log bonus frames (they will be recorded)
+        if info.is_bonus:
+            log.info("Bonus screen detected")
 
         # 3. Update state machine
         old_state, new_state = state_machine.update(info)
@@ -143,6 +153,9 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         # Create game folder when game starts
         if old_state != GameState.GAME and new_state == GameState.GAME:
             game_folder = create_game_folder()
+            game_start_time = utcnow()
+            total_pause_duration = 0.0
+            recorded_frame_count = 0
             log.info(f"Created game folder: {game_folder}")
 
         # Log when entering menu without recording
@@ -160,8 +173,9 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         # 4. Record frames only during GAME state
         if new_state == GameState.GAME and game_folder is not None:
             if frame_number % 100 == 0:
-                log.info("Recording game frame")
+                log.info("📹 Recording in progress")
             save_image(game_folder / f"{frame_number:06d}.png", raw_frame)
+            recorded_frame_count += 1
 
             # Log score changes (only when we have valid scores)
             if info.has_valid_scores:
@@ -176,12 +190,12 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
                 if info.p1_game_over and not last_game_over[0]:
                     # Use state machine's score if current info doesn't have it
                     p1_score = info.p1_score if info.p1_score is not None else state_machine.last_p1_score
-                    log.info(f"P1 game over: {p1_score}")
+                    log.info(f"🔶 P1 game over: {p1_score}")
                 if info.p2_game_over and not last_game_over[1]:
                     p2_score = info.p2_score if info.p2_score is not None else state_machine.last_p2_score
-                    log.info(f"P2 game over: {p2_score}")
+                    log.info(f"🔷 P2 game over: {p2_score}")
                 if info.both_game_over and not all(last_game_over):
-                    log.info("Both players game over, recording game over screen...")
+                    log.info("🏁 Both players game over, recording game over screen...")
                 last_game_over = current_game_over
 
         # 5. Handle game over
@@ -191,7 +205,20 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
                 final_p2 = state_machine.final_p2_score
                 log.info(f"Game over! Final score: P1={final_p1} P2={final_p2}")
 
-                video_path = compile_video(game_folder)
+                # Calculate real game duration (excluding pauses)
+                game_end_time = utcnow()
+                if game_start_time is not None:
+                    total_duration = (game_end_time - game_start_time).total_seconds()
+                    real_duration = total_duration - total_pause_duration
+                    log.info(
+                        f"Game duration: {total_duration:.1f}s total, "
+                        f"{total_pause_duration:.1f}s paused, {real_duration:.1f}s actual"
+                    )
+                    log.info(f"Recorded frames: {recorded_frame_count}")
+                else:
+                    real_duration = None
+
+                video_path = compile_video(game_folder, recorded_frame_count, real_duration)
                 log.info(f"Video created: {video_path}")
 
                 # Cleanup old game folders, keep last 5
@@ -242,11 +269,17 @@ async def main():
             break
 
 
-def compile_video(game_folder: Path) -> Path:
+def compile_video(
+    game_folder: Path,
+    frame_count: int | None = None,
+    real_duration: float | None = None,
+) -> Path:
     """Compile frames from a game folder into a video.
 
     Args:
         game_folder: Path to the game folder containing PNG frames
+        frame_count: Number of recorded frames
+        real_duration: Real game duration in seconds (excluding pauses)
 
     Returns:
         Path to the created video file
@@ -255,7 +288,19 @@ def compile_video(game_folder: Path) -> Path:
     # Use the game folder name for the video (already timestamped)
     video_name = f"{game_folder.name}.mp4"
     video_path = videos_path / video_name
-    create_video(video_path, frames_path=game_folder / "*.png", framerate=settings.fps)
+
+    # Calculate framerate to match real game duration
+    if frame_count and real_duration and real_duration > 0:
+        framerate = frame_count / real_duration
+        logging.info(
+            f"Using calculated framerate: {framerate:.2f} fps "
+            f"({frame_count} frames / {real_duration:.1f}s)"
+        )
+    else:
+        framerate = settings.fps
+        logging.info(f"Using default framerate: {framerate} fps")
+
+    create_video(video_path, frames_path=game_folder / "*.png", framerate=framerate)
     return video_path
 
 
