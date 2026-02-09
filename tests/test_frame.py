@@ -50,6 +50,7 @@ def test_is_paused(img_name, expected, load_image):
         ("game_over_both.png", False),
         ("menu.png", False),
         ("game_bonus.png", True),
+        ("bonus2.png", True),
     ],
 )
 def test_is_bonus(img_name, expected, load_image):

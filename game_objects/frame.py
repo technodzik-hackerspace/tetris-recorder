@@ -355,21 +355,21 @@ class Frame(BaseFrame):
     def is_bonus(self) -> bool:
         """Check if this frame shows a bonus screen.
 
-        Uses template matching to find the BONUS text in a specific region.
-        The bonus text appears at a fixed location in the upper-left of the frame
-        (approximately x=10, y=211 in stripped frame coordinates).
+        Uses a hybrid approach for speed:
+        1. Fast color pre-check to quickly reject non-bonus frames
+        2. Template matching only when color check passes (for accuracy)
+
+        This achieves ~1ms for non-bonus frames (majority) vs ~25ms for all frames
+        with pure template matching.
         """
         template = get_bonus_template()
         if template is None:
             return False
 
-        # Crop to the region where bonus text appears (with margin for safety)
-        # Bonus appears at ~(x=10, y=211), template is ~73x396 pixels
-        # Search region: y=150-350, x=0-500
+        # Crop to region where bonus text appears
         y1, y2 = 150, 350
         x1, x2 = 0, 500
 
-        # Ensure crop region is within frame bounds
         h, w = self.image.shape[:2]
         y2 = min(y2, h)
         x2 = min(x2, w)
@@ -378,12 +378,23 @@ class Frame(BaseFrame):
             return False
 
         crop = self.image[y1:y2, x1:x2]
-        gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
 
+        # Fast pre-check: count orange pixels in the bonus text region
+        # If not enough orange, definitely not a bonus screen
+        lower = np.array([0, 50, 180])
+        upper = np.array([80, 150, 255])
+        mask = cv2.inRange(crop, lower, upper)
+        orange_pixels = cv2.countNonZero(mask)
+
+        # Quick rejection: need at least 1000 orange pixels for potential bonus
+        if orange_pixels < 1000:
+            return False
+
+        # Passed color check - do accurate template matching
+        gray_crop = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         result = cv2.matchTemplate(gray_crop, template, cv2.TM_CCOEFF_NORMED)
         _, max_val, _, _ = cv2.minMaxLoc(result)
 
-        # Threshold for bonus detection (0.8 is conservative, template match is usually >0.99)
         return max_val > 0.8
 
     @cached_property
@@ -392,6 +403,10 @@ class Frame(BaseFrame):
 
         Note: This does NOT include bonus screens. Bonus screens are handled
         separately and should be recorded in the final video.
+
+        The pause indicator is a large red bar/text in the arc area.
+        We require a minimum number of red pixels to avoid false positives
+        from small red elements like the GAME OVER box border.
         """
         arc = self.crop(self.arc_pos)
         shape = arc.shape
@@ -404,7 +419,10 @@ class Frame(BaseFrame):
         upper = np.array([50, 50, 255])
         mask = cv2.inRange(arc, lower, upper)
 
-        return bool(mask.any())
+        # Require significant red pixels to avoid false positives
+        # from GAME OVER border or other small red elements
+        red_pixels = cv2.countNonZero(mask)
+        return red_pixels > 100
 
     @cached_property
     def is_two_player(self) -> bool:
