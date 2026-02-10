@@ -110,15 +110,17 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
             classifier.cumulative_timing.reset()
 
         # 1. Classify frame
-        # In debug mode during GAME state, skip score detection except every 100 frames
+        # Skip score detection except every 100 frames
         # to improve performance. Always detect scores when game_over might be happening.
         debug_mode = getattr(settings, "debug", False)
         skip_score = (
-            debug_mode
-            and state_machine.state == GameState.GAME
+            state_machine.state == GameState.GAME
             and frame_number % 100 != 0
             and not state_machine.game_over_detected
         )
+        if debug_mode:
+            skip_score = False
+
         info = classifier.classify(raw_frame, skip_score=skip_score)
 
         # If game_over just detected and we skipped scores, re-classify to get final scores
@@ -152,6 +154,14 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         # 3. Update state machine
         old_state, new_state = state_machine.update(info)
 
+        # In debug mode, log detailed frame info
+        if debug_mode:
+            log.info(
+                f"state={new_state.name} is_game={info.in_game} is_menu={info.in_menu} "
+                f"p1={info.p1_score} p2={info.p2_score} "
+                f"go=[{info.p1_game_over},{info.p2_game_over}]"
+            )
+
         # Log state transitions
         if old_state != new_state:
             log.info(f"State transition: {old_state.name} -> {new_state.name}")
@@ -166,13 +176,13 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
 
         # Log when entering menu without recording
         if new_state == GameState.MENU:
-            if frame_number % 100 == 0:
+            if debug_mode or frame_number % 100 == 0:
                 log.info("In menu, waiting for game start")
             continue
 
-        # Log when frame is not tetris
+        # Log when frame is not tetris and save for analysis
         if new_state == GameState.NOT_TETRIS:
-            if frame_number % 100 == 0:
+            if debug_mode or frame_number % 100 == 0:
                 log.info("Frame not detected as Tetris")
             # Save not-tetris frames for later analysis
             frames_not_tetris_path.mkdir(exist_ok=True)
