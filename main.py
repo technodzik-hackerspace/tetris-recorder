@@ -5,10 +5,14 @@ from asyncio import sleep
 from copy import deepcopy
 from datetime import datetime, UTC
 from pathlib import Path
+from typing import Set
 
 from aiogram import Bot
 
 from bot import get_bot, send_video_to_telegram
+
+# Track background tasks to prevent garbage collection
+_background_tasks: Set[asyncio.Task] = set()
 from config import settings
 from cv_tools.debug import save_image
 from cv_tools.detect_digit import get_refs, RoiRef
@@ -59,6 +63,43 @@ def get_frame_logger(name):
     _log.propagate = False
 
     return _log
+
+
+async def process_game_video(
+    bot: Bot | None,
+    game_folder: Path,
+    recorded_frame_count: int,
+    real_duration: float | None,
+    final_p1: int | None,
+    final_p2: int | None,
+):
+    """Process video compilation and telegram sending in background.
+
+    This runs asynchronously so it doesn't block the game loop from
+    starting to record the next game.
+    """
+    try:
+        # Run video compilation in a thread to not block the event loop
+        start_time = utcnow()
+        video_path = await asyncio.to_thread(
+            compile_video, game_folder, recorded_frame_count, real_duration
+        )
+        video_time = (utcnow() - start_time).total_seconds()
+        logging.info(f"Video created: {video_path} ({video_time:.1f}s)")
+
+        if bot:
+            caption = f"Game Over!\nP1: {final_p1} | P2: {final_p2}"
+            start_time = utcnow()
+            await send_video_to_telegram(bot, video_path, caption)
+            send_time = (utcnow() - start_time).total_seconds()
+            logging.info(f"Video sent to channel {settings.bot_channel} ({send_time:.1f}s)")
+
+        # Cleanup old game folders, keep last 5
+        removed = await asyncio.to_thread(cleanup_old_games, 5)
+        if removed:
+            logging.info(f"Cleaned up {len(removed)} old game folder(s)")
+    except Exception as e:
+        logging.error(f"Error processing game video: {e}")
 
 
 async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
@@ -240,18 +281,18 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
                 else:
                     real_duration = None
 
-                video_path = compile_video(game_folder, recorded_frame_count, real_duration)
-                log.info(f"Video created: {video_path}")
-
-                # Cleanup old game folders, keep last 5
-                removed = cleanup_old_games(keep_count=5)
-                if removed:
-                    log.info(f"Cleaned up {len(removed)} old game folder(s)")
-
-                if bot:
-                    caption = f"Game Over!\nP1: {final_p1} | P2: {final_p2}"
-                    await send_video_to_telegram(bot, video_path, caption)
-                    log.info(f"Video sent to channel {settings.bot_channel}")
+                # Spawn background task for video compilation and sending
+                # This doesn't block the game loop from starting to record the next game
+                task = asyncio.create_task(
+                    process_game_video(
+                        bot, game_folder, recorded_frame_count, real_duration,
+                        final_p1, final_p2
+                    )
+                )
+                # Store reference to prevent garbage collection
+                _background_tasks.add(task)
+                task.add_done_callback(_background_tasks.discard)
+                log.info("Video processing started in background")
             else:
                 log.info("Game over detected but not a valid game (mid-game join)")
 

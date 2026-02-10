@@ -12,6 +12,7 @@ from game_objects.frame import Frame
         ("game_over_right.png", ([156, 4, 1], [2680, 0, 9])),
         ("game_over_both.png", ([12283, 37, 2], [2680, 0, 9])),
         ("game_over_solo.png", ([326, 0, 1], [1750, 0, 9])),
+        ("game_versus.png", ([520, 0, 9], [880, 0, 9])),
     ],
 )
 def test_score_frame(img_name, expected, refs, load_image):
@@ -35,7 +36,9 @@ def test_score_frame(img_name, expected, refs, load_image):
         ("menu.png", False),
         ("game_bonus.png", False),  # Bonus frames are NOT paused (they should be recorded)
         ("game_pause.png", True),  # Actual pause screen with PAUSE box
+        ("game_pause2.png", True),  # Another pause screen
         ("p1_in_game_p2_game_over.png", False),  # Similar to pause but without PAUSE box
+        ("game_versus.png", False),  # Active 2-player game
     ],
 )
 def test_is_paused(img_name, expected, load_image):
@@ -76,6 +79,7 @@ def test_menu(load_image):
         ("game_over_both.png", True),
         ("game_over_solo.png", True),
         ("menu.png", False),
+        ("game_versus.png", True),
     ],
 )
 def test_is_game(img_name, expected, load_image):
@@ -92,6 +96,7 @@ def test_is_game(img_name, expected, load_image):
         ("game_over_both.png", (True, True)),
         ("game_over_solo.png", (True, False)),
         ("game_over_right.png", (False, True)),
+        ("game_versus.png", (False, False)),
     ],
 )
 def test_game_over(img_name, expected, load_image, refs):
