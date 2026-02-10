@@ -7,6 +7,7 @@ frames_path = _root / "frames"
 regions_path = _root / "regions"
 videos_path = _root / "videos"
 games_path = _root / "games"
+frames_not_tetris_path = _root / "frames_not_tetris"
 
 
 def clean_dir(path: Path):
@@ -68,3 +69,29 @@ def _remove_folder(folder: Path):
         elif item.is_dir():
             _remove_folder(item)
     folder.rmdir()
+
+
+def cleanup_not_tetris_frames(keep_count: int = 100) -> int:
+    """Remove old frames from frames_not_tetris folder, keeping only the most recent ones.
+
+    Args:
+        keep_count: Number of recent frames to keep
+
+    Returns:
+        Number of removed frames
+    """
+    if not frames_not_tetris_path.exists():
+        return 0
+
+    frames = sorted(
+        [f for f in frames_not_tetris_path.iterdir() if f.is_file() and f.suffix == ".png"],
+        key=lambda x: x.name,
+    )
+
+    removed = 0
+    while len(frames) > keep_count:
+        frame = frames.pop(0)
+        frame.unlink()
+        removed += 1
+
+    return removed

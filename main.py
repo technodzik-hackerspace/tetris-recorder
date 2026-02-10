@@ -16,8 +16,10 @@ from cv_tools.frame_generator import frame_generator
 from game_objects.frame_classifier import FrameClassifier
 from game_objects.game_state import GameState, GameStateMachine
 from utils.dirs import (
+    cleanup_not_tetris_frames,
     cleanup_old_games,
     create_game_folder,
+    frames_not_tetris_path,
     videos_path,
 )
 from utils.ffmpeg_tools import create_video
@@ -172,6 +174,12 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         if new_state == GameState.NOT_TETRIS:
             if frame_number % 100 == 0:
                 log.info("Frame not detected as Tetris")
+            # Save not-tetris frames for later analysis
+            frames_not_tetris_path.mkdir(exist_ok=True)
+            save_image(frames_not_tetris_path / f"{frame_number:06d}.png", raw_frame)
+            # Cleanup old frames periodically
+            if frame_number % 1000 == 0:
+                cleanup_not_tetris_frames(keep_count=1000)
             continue
 
         # 4. Record frames only during GAME state
