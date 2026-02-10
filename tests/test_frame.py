@@ -53,6 +53,7 @@ def test_is_paused(img_name, expected, load_image):
         ("menu.png", False),
         ("game_bonus.png", True),
         ("bonus2.png", True),
+        ("bonus3.png", True),  # bonus text on right side
     ],
 )
 def test_is_bonus(img_name, expected, load_image):

@@ -366,25 +366,9 @@ class Frame(BaseFrame):
             (self.image.shape[0], self.image.shape[1]),
         )
 
-    @cached_property
-    def is_bonus(self) -> bool:
-        """Check if this frame shows a bonus screen.
-
-        Uses a hybrid approach for speed:
-        1. Fast color pre-check to quickly reject non-bonus frames
-        2. Template matching only when color check passes (for accuracy)
-
-        This achieves ~1ms for non-bonus frames (majority) vs ~25ms for all frames
-        with pure template matching.
-        """
-        template = get_bonus_template()
-        if template is None:
-            return False
-
-        # Crop to region where bonus text appears
+    def _check_bonus_region(self, template, x1: int, x2: int) -> bool:
+        """Check if a specific region contains the bonus screen."""
         y1, y2 = 150, 350
-        x1, x2 = 0, 500
-
         h, w = self.image.shape[:2]
         y2 = min(y2, h)
         x2 = min(x2, w)
@@ -395,7 +379,6 @@ class Frame(BaseFrame):
         crop = self.image[y1:y2, x1:x2]
 
         # Fast pre-check: count orange pixels in the bonus text region
-        # If not enough orange, definitely not a bonus screen
         lower = np.array([0, 50, 180])
         upper = np.array([80, 150, 255])
         mask = cv2.inRange(crop, lower, upper)
@@ -411,6 +394,32 @@ class Frame(BaseFrame):
         _, max_val, _, _ = cv2.minMaxLoc(result)
 
         return max_val > 0.8
+
+    @cached_property
+    def is_bonus(self) -> bool:
+        """Check if this frame shows a bonus screen.
+
+        Uses a hybrid approach for speed:
+        1. Fast color pre-check to quickly reject non-bonus frames
+        2. Template matching only when color check passes (for accuracy)
+
+        Checks both left and right sides since bonus can appear on either side.
+        """
+        template = get_bonus_template()
+        if template is None:
+            return False
+
+        h, w = self.image.shape[:2]
+
+        # Check left side (P1 bonus)
+        if self._check_bonus_region(template, 0, 500):
+            return True
+
+        # Check right side (P2 bonus)
+        if self._check_bonus_region(template, w - 500, w):
+            return True
+
+        return False
 
     @cached_property
     def is_paused(self):
