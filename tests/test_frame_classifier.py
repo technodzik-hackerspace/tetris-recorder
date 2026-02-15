@@ -82,6 +82,17 @@ class TestFrameClassifier:
         assert info.p2_game_over is True
         assert info.both_game_over is False
 
+    def test_classify_paused_2p(self, load_image, refs):
+        """Paused 2-player game should be classified as in_game and paused."""
+        classifier = FrameClassifier(refs)
+        frame = load_image("paused_2p.png")
+        info = classifier.classify(frame)
+
+        assert info.is_tetris is True
+        assert info.in_menu is False
+        assert info.in_game is True
+        assert info.is_paused is True
+
 
 @pytest.mark.parametrize(
     "img_name,expected_scores",
