@@ -30,7 +30,11 @@ def frame_generator(path: Path, loop: bool = False):
         is_device = _is_capture_device(path)
         # Handle video files and video devices (e.g., /dev/video0)
         while True:
-            cap = cv2.VideoCapture(str(path))
+            # Use V4L2 backend explicitly for capture devices to avoid GStreamer issues
+            if is_device:
+                cap = cv2.VideoCapture(str(path), cv2.CAP_V4L2)
+            else:
+                cap = cv2.VideoCapture(str(path))
             if is_device:
                 # Use MJPEG format for capture devices (much faster than YUYV)
                 fourcc = cv2.VideoWriter_fourcc(*'MJPG')

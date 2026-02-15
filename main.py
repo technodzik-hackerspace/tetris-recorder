@@ -136,8 +136,8 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         log = ILoggerAdapter(_log, {"frame_number": frame_number})
         fps_frame_count += 1
 
-        # Log state every 100 frames with FPS and timing info
-        if frame_number % 100 == 0:
+        # Log state every 100 frames with FPS and timing info (only during active game)
+        if frame_number % 100 == 0 and state_machine.state == GameState.GAME:
             elapsed = (utcnow() - fps_start_time).total_seconds()
             fps = fps_frame_count / elapsed if elapsed > 0 else 0
             avg_timing = classifier.cumulative_timing.avg_str()
@@ -215,17 +215,12 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
             recorded_frame_count = 0
             log.info(f"Created game folder: {game_folder}")
 
-        # Log when entering menu without recording
+        # Skip recording when in menu
         if new_state == GameState.MENU:
-            if debug_mode or frame_number % 100 == 0:
-                log.info("In menu, waiting for game start")
             continue
 
-        # Log when frame is not tetris and save for analysis
+        # Save not-tetris frames for later analysis
         if new_state == GameState.NOT_TETRIS:
-            if debug_mode or frame_number % 100 == 0:
-                log.info("Frame not detected as Tetris")
-            # Save not-tetris frames for later analysis
             frames_not_tetris_path.mkdir(exist_ok=True)
             save_image(frames_not_tetris_path / f"{frame_number:06d}.png", raw_frame)
             # Cleanup old frames periodically
