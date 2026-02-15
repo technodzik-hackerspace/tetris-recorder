@@ -135,16 +135,23 @@ class FrameClassifier:
             is_bonus = False
         timing.is_paused_time = time.perf_counter() - t0
 
-        # Paused frames should NOT be recorded
+        # For paused frames, still check if it's a 2-player game
         if is_paused:
+            t0 = time.perf_counter()
+            try:
+                is_two_player = frame.is_two_player
+            except Exception:
+                is_two_player = False
+            timing.is_two_player_time = time.perf_counter() - t0
+
             timing.total_time = time.perf_counter() - total_start
             self.last_timing = timing
             self.cumulative_timing.add(timing)
             return FrameInfo(
                 is_tetris=True,
                 in_menu=False,
-                in_game=False,
-                game_type=None,
+                in_game=is_two_player,  # Paused 2P game is still in_game
+                game_type="multi" if is_two_player else None,
                 p1_score=None,
                 p2_score=None,
                 p1_game_over=False,

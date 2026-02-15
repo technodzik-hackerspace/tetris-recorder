@@ -136,8 +136,23 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
         log = ILoggerAdapter(_log, {"frame_number": frame_number})
         fps_frame_count += 1
 
-        # Log state every 100 frames with FPS and timing info
-        if frame_number % 100 == 0:
+        debug_mode = getattr(settings, "debug", False)
+
+        # Performance optimization: only classify every 10th frame
+        # During GAME state, record all frames but skip classification on non-10th frames
+        should_classify = frame_number % 10 == 0 or debug_mode
+
+        if state_machine.state == GameState.GAME and game_folder is not None:
+            # Always record frames during game
+            save_image(game_folder / f"{frame_number:06d}.png", raw_frame)
+            recorded_frame_count += 1
+
+            if not should_classify and not state_machine.game_over_detected:
+                # Skip classification but keep recording
+                continue
+
+        # Log state every 100 frames with FPS and timing info (only during active game)
+        if frame_number % 100 == 0 and state_machine.state == GameState.GAME:
             elapsed = (utcnow() - fps_start_time).total_seconds()
             fps = fps_frame_count / elapsed if elapsed > 0 else 0
             avg_timing = classifier.cumulative_timing.avg_str()
@@ -150,10 +165,13 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
             fps_frame_count = 0
             classifier.cumulative_timing.reset()
 
+        # Skip classification on non-10th frames when not in game
+        if not should_classify:
+            continue
+
         # 1. Classify frame
         # Skip score detection except every 100 frames
         # to improve performance. Always detect scores when game_over might be happening.
-        debug_mode = getattr(settings, "debug", False)
         skip_score = (
             state_machine.state == GameState.GAME
             and frame_number % 100 != 0
@@ -215,17 +233,12 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
             recorded_frame_count = 0
             log.info(f"Created game folder: {game_folder}")
 
-        # Log when entering menu without recording
+        # Skip recording when in menu
         if new_state == GameState.MENU:
-            if debug_mode or frame_number % 100 == 0:
-                log.info("In menu, waiting for game start")
             continue
 
-        # Log when frame is not tetris and save for analysis
+        # Save not-tetris frames for later analysis
         if new_state == GameState.NOT_TETRIS:
-            if debug_mode or frame_number % 100 == 0:
-                log.info("Frame not detected as Tetris")
-            # Save not-tetris frames for later analysis
             frames_not_tetris_path.mkdir(exist_ok=True)
             save_image(frames_not_tetris_path / f"{frame_number:06d}.png", raw_frame)
             # Cleanup old frames periodically
@@ -233,12 +246,10 @@ async def game_loop(bot: Bot | None, image_device: Path, roi_ref: RoiRef):
                 cleanup_not_tetris_frames(keep_count=1000)
             continue
 
-        # 4. Record frames only during GAME state
+        # 4. Handle GAME state (frames already recorded above)
         if new_state == GameState.GAME and game_folder is not None:
             if frame_number % 100 == 0:
                 log.info("📹 Recording in progress")
-            save_image(game_folder / f"{frame_number:06d}.png", raw_frame)
-            recorded_frame_count += 1
 
             # Log score changes (only when we have valid scores)
             if info.has_valid_scores:
